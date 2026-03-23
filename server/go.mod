@@ -1,3 +1,3 @@
-module github.com/vvsynapse/temporal-ai-assistant/server
+module github.com/vvsynapse/ai-assistant-demo/server
 
 go 1.21

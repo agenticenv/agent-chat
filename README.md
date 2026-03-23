@@ -1,10 +1,10 @@
-# temporal-ai-assistant
+# ai-assistant-demo
 
-Temporal AI Assistant — an AI assistant application built on [Temporal](https://temporal.io) using the [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) SDK.
+AI Assistant Demo — an AI assistant application built on [Temporal](https://temporal.io) using the [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) SDK.
 
 ## Overview
 
-**temporal-ai-assistant** is an AI assistant that leverages [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. It includes a server, a web UI, and runs Temporal via Docker Compose.
+**ai-assistant-demo** is an AI assistant that leverages [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. It includes a server, a web UI, and runs Temporal via Docker Compose.
 
 ## Built with
 
@@ -16,8 +16,8 @@ Temporal AI Assistant — an AI assistant application built on [Temporal](https:
 
 ```bash
 # Clone the repository
-git clone https://github.com/vvsynapse/temporal-ai-assistant.git
-cd temporal-ai-assistant
+git clone https://github.com/vvsynapse/ai-assistant-demo.git
+cd ai-assistant-demo
 
 # Start server, UI, and Temporal
 docker compose up -d
@@ -46,7 +46,7 @@ docker compose down
 ## Project structure
 
 ```
-temporal-ai-assistant/
+ai-assistant-demo/
 ├── docker-compose.yml   # Server, UI, and Temporal
 ├── server/             # Go module (own go.mod)
 │   ├── go.mod
