@@ -313,7 +313,7 @@ export default function AssistantPage() {
       {/* Sidebar */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-muted/30">
         <div className="flex items-center justify-between border-b border-border p-3">
-          <h2 className="text-sm font-semibold">AI Assistant</h2>
+          <h2 className="text-sm font-semibold">Agent demo</h2>
           <button
             type="button"
             onClick={handleThemeToggle}
