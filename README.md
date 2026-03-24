@@ -1,6 +1,6 @@
 # agent-demo
 
-Agent demo — a sample app built on [Temporal](https://temporal.io) using [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go). It includes a chat-style React UI and a Go server with REST APIs, and is intended to grow into multi-agent selection and orchestration showcases.
+Agent demo — a sample app built with [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go). It includes a chat-style React UI and a Go server with REST APIs, aimed at single-agent chat today and **multi-agent** selection, routing, and orchestration demos as the project grows.
 
 ## Overview
 
