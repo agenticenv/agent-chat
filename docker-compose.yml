@@ -41,8 +41,8 @@ services:
 
   ui:
     build:
-      context: .
-      dockerfile: ui/Dockerfile
+      context: ./ui
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:

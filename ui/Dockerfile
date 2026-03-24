@@ -1,13 +1,12 @@
-# Build stage
-# Build from repo root: docker build -f ui/Dockerfile .
+# Build stage (context: ./ui)
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY ui/package.json ui/package-lock.json* ./
+COPY package.json package-lock.json* ./
 RUN npm ci
 
-COPY ui/ .
+COPY . .
 
 RUN npm run build
 
@@ -25,7 +24,7 @@ ENV API_BASE=/api
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/package-lock.json* ./
-COPY ui/entrypoint.sh /entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
 
 RUN npm ci --omit=dev && chmod +x /entrypoint.sh
 

@@ -100,7 +100,7 @@ docker compose down
 ### Building the UI image
 
 ```bash
-docker build -f ui/Dockerfile -t ai-assistant-ui .
+docker build -t ai-assistant-ui ./ui
 ```
 
 Runtime env vars: `API_BASE`, `PORT`. See [Environment variables](#environment-variables) above.
