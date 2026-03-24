@@ -4,22 +4,49 @@ AI Assistant Demo — an AI assistant application built on [Temporal](https://te
 
 ## Overview
 
-**ai-assistant-demo** is an AI assistant that leverages [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. It includes a server, a web UI, and runs Temporal via Docker Compose.
+**ai-assistant-demo** is an AI assistant that leverages [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. It includes a backend server and a React SPA that talks to it via REST APIs.
 
 ## Built with
 
 - **[temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go)** — Temporal-native AI agent SDK for Go
+- **React Router 7 + Vite** — Single-page app UI
+- **Tailwind CSS v4** — Styling
+
+## Setup
+
+### Run the UI locally
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173). The UI fetches data from the backend at `http://localhost:8080` (proxied via `/api` in dev). Start the server for full functionality.
+
+**Configurable API URL:** In Docker, set `API_BASE` at runtime. Default `/api` (same-origin).
+
+### Run the server
+
+```bash
+docker compose up -d temporal postgres
+docker compose up -d server
+```
+
+### API contract
+
+The UI expects these REST endpoints:
+
+| Endpoint | Method | Request | Response |
+|----------|--------|---------|----------|
+| `/api/conversations` | GET | - | `Conversation[]` or `{ conversations: [...] }` |
+| `/api/conversations` | POST | `{ title?: string }` | `{ id, title }` or `{ conversation: {...} }` |
+| `/api/conversations/:id/messages` | GET | - | `Message[]` or `{ messages: [...] }` |
+| `/api/conversations/:id/messages` | POST | `{ content: string }` | `Message` or `{ message: {...} }` |
 
 ## Running with Docker
 
-### Start all services (server, UI, Temporal)
-
 ```bash
-# Clone the repository
-git clone https://github.com/vvsynapse/ai-assistant-demo.git
-cd ai-assistant-demo
-
-# Start server, UI, and Temporal
 docker compose up -d
 
 # View logs
@@ -43,18 +70,15 @@ docker compose up -d ui
 docker compose down
 ```
 
-## Project structure
+### Building the UI image
 
+```bash
+cd ui
+docker build -t ai-assistant-ui .
 ```
-ai-assistant-demo/
-├── docker-compose.yml   # Server, UI, and Temporal
-├── server/             # Go module (own go.mod)
-│   ├── go.mod
-│   ├── main.go
-│   └── Dockerfile
-├── ui/
-│   ├── Dockerfile
-│   └── public/         # Static UI assets
-│       └── index.html
-└── README.md
+
+**Runtime env:** Pass `API_BASE` and `PORT` when running:
+
+```bash
+docker run -p 3000:3000 -e API_BASE=http://localhost:8080/api ai-assistant-ui
 ```
