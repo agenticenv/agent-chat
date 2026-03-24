@@ -1,10 +1,10 @@
-# ai-assistant-demo
+# agent-demo
 
-AI Assistant Demo — an AI assistant application built on [Temporal](https://temporal.io) using the [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) SDK.
+Agent demo — a sample app built on [Temporal](https://temporal.io) using [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go). It includes a chat-style React UI and a Go server with REST APIs, and is intended to grow into multi-agent selection and orchestration showcases.
 
 ## Overview
 
-**ai-assistant-demo** is an AI assistant that leverages [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. It includes a backend server and a React SPA that talks to it via REST APIs.
+**agent-demo** uses [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. Today it provides a general chat experience; the same codebase is meant to extend with agent selection and multi-agent orchestration examples.
 
 ## Built with
 
@@ -43,7 +43,7 @@ Restart `npm run dev` after changing.
 **Docker — point to backend:**
 
 ```bash
-docker run -p 3000:3000 -e API_BASE=http://localhost:8080/api ai-assistant-ui
+docker run -p 3000:3000 -e API_BASE=http://localhost:8080/api agent-demo-ui
 ```
 
 Or in `docker-compose.yml`:
@@ -100,7 +100,7 @@ docker compose down
 ### Building the UI image
 
 ```bash
-docker build -t ai-assistant-ui ./ui
+docker build -t agent-demo-ui ./ui
 ```
 
 Runtime env vars: `API_BASE`, `PORT`. See [Environment variables](#environment-variables) above.

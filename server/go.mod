@@ -1,3 +1,3 @@
-module github.com/vvsynapse/ai-assistant-demo/server
+module github.com/vvsynapse/agent-demo/server
 
 go 1.21

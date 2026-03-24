@@ -1,5 +1,5 @@
 {
-  "name": "ui",
+  "name": "agent-demo-ui",
   "version": "0.0.1",
   "type": "module",
   "private": true,
