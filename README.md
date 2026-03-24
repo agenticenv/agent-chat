@@ -22,9 +22,36 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). The UI fetches data from the backend at `http://localhost:8080` (proxied via `/api` in dev). Start the server for full functionality.
+Open [http://localhost:5173](http://localhost:5173). The UI fetches data from the backend (proxied via `/api` in dev). Start the server for full functionality.
 
-**Configurable API URL:** In Docker, set `API_BASE` at runtime. Default `/api` (same-origin).
+### Environment variables
+
+| Variable | Where | Description |
+|----------|-------|-------------|
+| `API_PROXY_TARGET` | Local dev (`.env`) | Backend URL for Vite proxy. Default `http://localhost:8080`. Use when backend runs on another port. |
+| `API_BASE` | Docker / docker-compose | API base URL at runtime. Default `/api` (same-origin). Use full URL when backend is elsewhere. |
+
+**Local dev — backend on different port:**
+
+```bash
+# ui/.env
+API_PROXY_TARGET=http://localhost:3001
+```
+
+Restart `npm run dev` after changing.
+
+**Docker — point to backend:**
+
+```bash
+docker run -p 3000:3000 -e API_BASE=http://localhost:8080/api ai-assistant-ui
+```
+
+Or in `docker-compose.yml`:
+
+```yaml
+environment:
+  API_BASE: ${API_BASE:-http://localhost:8080/api}
+```
 
 ### Run the server
 
@@ -73,12 +100,7 @@ docker compose down
 ### Building the UI image
 
 ```bash
-cd ui
-docker build -t ai-assistant-ui .
+docker build -f ui/Dockerfile -t ai-assistant-ui .
 ```
 
-**Runtime env:** Pass `API_BASE` and `PORT` when running:
-
-```bash
-docker run -p 3000:3000 -e API_BASE=http://localhost:8080/api ai-assistant-ui
-```
+Runtime env vars: `API_BASE`, `PORT`. See [Environment variables](#environment-variables) above.
