@@ -268,10 +268,11 @@ export default function AssistantPage() {
         const conv = await createConversation()
         setConversations((prev) => [conv, ...prev])
         setSelectedId(conv.id)
-        setMessages([])
+        const userMsg: Message = { id: `temp-${Date.now()}`, role: "user", content: text, createdAt: new Date().toISOString() }
+        setMessages([userMsg])
         setInput("")
         const msg = await sendMessage(conv.id, text)
-        setMessages([msg])
+        setMessages([userMsg, msg])
         setConversations((prev) =>
           prev.map((c) =>
             c.id === conv.id ? { ...c, title: text.slice(0, 32) + (text.length > 32 ? "…" : "") } : c
@@ -282,6 +283,8 @@ export default function AssistantPage() {
       }
       return
     }
+    const userMsg: Message = { id: `temp-${Date.now()}`, role: "user", content: text, createdAt: new Date().toISOString() }
+    setMessages((prev) => [...prev, userMsg])
     setInput("")
     try {
       const msg = await sendMessage(selectedId, text)
