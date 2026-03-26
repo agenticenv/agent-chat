@@ -4,11 +4,17 @@ services:
     ports:
       - "7233:7233"
     environment:
-      - DB=postgresql
+      - DB=postgres12
       - DB_PORT=5432
       - POSTGRES_USER=temporal
       - POSTGRES_PWD=temporal
       - POSTGRES_SEEDS=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "temporal workflow list --address $(hostname):7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,6 +31,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
 
   server:
     build:
@@ -33,11 +42,32 @@ services:
     ports:
       - "8080:8080"
     environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://temporal:temporal@postgres:5432/assistant?sslmode=disable
       - TEMPORAL_HOST=temporal
       - TEMPORAL_PORT=7233
+      - TEMPORAL_NAMESPACE=default
+      - TEMPORAL_TASK_QUEUE=ai-assistant
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - SYSTEM_PROMPT=${SYSTEM_PROMPT:-You are a helpful assistant.}
+      - CONVERSATION_WINDOW_SIZE=20
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    ports:
+      - "8233:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
     depends_on:
       temporal:
-        condition: service_started
+        condition: service_healthy
 
   ui:
     build:
@@ -46,7 +76,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # API URL at runtime (from browser). Default /api for same-origin proxy.
-      API_BASE: ${API_BASE:-/api}
+      API_BASE: ${API_BASE:-http://localhost:8080/api}
     depends_on:
       - server
+
+volumes:
+  postgres_data:
