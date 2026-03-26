@@ -4,17 +4,21 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
 	"github.com/go-chi/chi/v5"
+	"go.temporal.io/sdk/client"
+
 	"github.com/vvsynapse/agent-demo/server/store"
 )
 
 // ConversationHandler handles CRUD for conversations.
 type ConversationHandler struct {
-	store *store.ConversationStore
+	store          *store.ConversationStore
+	temporalClient client.Client
 }
 
-func NewConversationHandler(s *store.ConversationStore) *ConversationHandler {
-	return &ConversationHandler{store: s}
+func NewConversationHandler(s *store.ConversationStore, tc client.Client) *ConversationHandler {
+	return &ConversationHandler{store: s, temporalClient: tc}
 }
 
 // GET /api/conversations
@@ -67,6 +71,8 @@ func (h *ConversationHandler) Update(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/conversations/{id}
 func (h *ConversationHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	// Signal the session workflow to complete (ignore error if workflow not running)
+	_ = h.temporalClient.SignalWorkflow(r.Context(), "agent-session-"+id, "", "complete", nil)
 	if err := h.store.Delete(r.Context(), id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			jsonError(w, "conversation not found", http.StatusNotFound)
