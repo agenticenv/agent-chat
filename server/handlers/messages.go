@@ -5,30 +5,19 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	enumspb "go.temporal.io/api/enums/v1"
-	"go.temporal.io/sdk/client"
 
-	agentconv "github.com/vvsynapse/agent-demo/server/agent"
 	"github.com/vvsynapse/agent-demo/server/store"
 	sdkagent "github.com/vvsynapse/temporal-agent-sdk-go/pkg/agent"
 )
 
 type MessageHandler struct {
-	store            *store.MessageStore
-	convStore        *store.ConversationStore
-	temporalClient   client.Client
-	sessionTaskQueue string // task queue for SessionWorkflow
-	agentTaskQueue   string // task queue for AgentWorkflow (SDK activities)
+	store     *store.MessageStore
+	convStore *store.ConversationStore
+	agent     *sdkagent.Agent
 }
 
-func NewMessageHandler(ms *store.MessageStore, cs *store.ConversationStore, tc client.Client, sessionTaskQueue, agentTaskQueue string) *MessageHandler {
-	return &MessageHandler{
-		store:            ms,
-		convStore:        cs,
-		temporalClient:   tc,
-		sessionTaskQueue: sessionTaskQueue,
-		agentTaskQueue:   agentTaskQueue,
-	}
+func NewMessageHandler(ms *store.MessageStore, cs *store.ConversationStore, a *sdkagent.Agent) *MessageHandler {
+	return &MessageHandler{store: ms, convStore: cs, agent: a}
 }
 
 // GET /api/conversations/{id}/messages
@@ -63,36 +52,8 @@ func (h *MessageHandler) Send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// UpdateWithStartWorkflow: starts the session workflow if not running,
-	// or sends the update to the existing one. The session workflow delegates
-	// to the SDK's AgentWorkflow as a child workflow.
-	workflowID := "agent-session-" + convID
-
-	startOp := h.temporalClient.NewWithStartWorkflowOperation(
-		client.StartWorkflowOptions{
-			ID:                       workflowID,
-			TaskQueue:                h.sessionTaskQueue,
-			WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		},
-		"SessionWorkflow",
-		agentconv.SessionInput{ConversationID: convID, TaskQueue: h.agentTaskQueue},
-	)
-
-	handle, err := h.temporalClient.UpdateWithStartWorkflow(r.Context(), client.UpdateWithStartWorkflowOptions{
-		StartWorkflowOperation: startOp,
-		UpdateOptions: client.UpdateWorkflowOptions{
-			UpdateName:   "send-message",
-			Args:         []interface{}{body.Content},
-			WaitForStage: client.WorkflowUpdateStageCompleted,
-		},
-	})
-	if err != nil {
-		jsonError(w, "agent error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var resp sdkagent.AgentResponse
-	if err := handle.Get(r.Context(), &resp); err != nil {
+	// SDK handles everything: Temporal workflow, LLM call, message persistence.
+	if _, err := h.agent.Run(r.Context(), body.Content, convID); err != nil {
 		jsonError(w, "agent error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
