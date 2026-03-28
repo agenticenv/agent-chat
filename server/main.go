@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,9 +14,6 @@ import (
 	sdkagent "github.com/vvsynapse/temporal-agent-sdk-go/pkg/agent"
 	"github.com/vvsynapse/temporal-agent-sdk-go/pkg/llm"
 	"github.com/vvsynapse/temporal-agent-sdk-go/pkg/llm/openai"
-	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/worker"
-	"go.temporal.io/sdk/workflow"
 
 	agentconv "github.com/vvsynapse/agent-demo/server/agent"
 	"github.com/vvsynapse/agent-demo/server/config"
@@ -62,24 +58,15 @@ func main() {
 		log.Fatalf("llm client: %v", err)
 	}
 
-	// ── Shared Temporal client ───────────────────────────────────────────────
-	// One client shared between the SDK agent (activities/worker) and our
-	// session workflow. We own the lifecycle; SDK does not close it.
-	tc, err := client.Dial(client.Options{
-		HostPort:  fmt.Sprintf("%s:%d", cfg.TemporalHost, cfg.TemporalPort),
-		Namespace: cfg.TemporalNamespace,
-	})
-	if err != nil {
-		log.Fatalf("temporal client: %v", err)
-	}
-	defer tc.Close()
-
 	// ── Agent (SDK) ──────────────────────────────────────────────────────────
-	// Creates the SDK worker that registers AgentWorkflow + all activities
-	// (AgentLLMActivity, AddConversationMessagesActivity, etc.) on the task queue.
+	// The SDK handles all Temporal internals: client, worker, workflows, activities.
 	a, err := sdkagent.NewAgent(
-		sdkagent.WithTemporalClient(tc),
-		sdkagent.WithTaskQueue(cfg.TaskQueue),
+		sdkagent.WithTemporalConfig(&sdkagent.TemporalConfig{
+			Host:      cfg.TemporalHost,
+			Port:      cfg.TemporalPort,
+			Namespace: cfg.TemporalNamespace,
+			TaskQueue: cfg.TaskQueue,
+		}),
 		sdkagent.WithSystemPrompt(cfg.SystemPrompt),
 		sdkagent.WithLLMClient(llmClient),
 		sdkagent.WithConversation(pgConv),
@@ -92,26 +79,9 @@ func main() {
 	defer a.Close()
 	log.Println("agent ready")
 
-	// ── Session worker ───────────────────────────────────────────────────────
-	// Runs on a dedicated task queue so it doesn't pick up SDK activities.
-	// The child AgentWorkflow is dispatched to the SDK's task queue.
-	sessionTaskQueue := cfg.TaskQueue + "-sessions"
-	sessionWorker := worker.New(tc, sessionTaskQueue, worker.Options{})
-	sessionWorker.RegisterWorkflowWithOptions(
-		agentconv.SessionWorkflow,
-		workflow.RegisterOptions{Name: "SessionWorkflow"},
-	)
-	go func() {
-		if err := sessionWorker.Start(); err != nil {
-			log.Fatalf("session worker: %v", err)
-		}
-	}()
-	defer sessionWorker.Stop()
-	log.Println("session worker ready")
-
 	// ── Handlers ──────────────────────────────────────────────────────────────
-	convH := handlers.NewConversationHandler(convStore, tc)
-	msgH := handlers.NewMessageHandler(msgStore, convStore, tc, sessionTaskQueue, cfg.TaskQueue)
+	convH := handlers.NewConversationHandler(convStore)
+	msgH := handlers.NewMessageHandler(msgStore, convStore, a)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()

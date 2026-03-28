@@ -37,8 +37,10 @@ services:
 
   server:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
+      additional_contexts:
+        sdk: ../temporal-agent-sdk-go
     ports:
       - "8080:8080"
     environment:
