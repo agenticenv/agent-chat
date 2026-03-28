@@ -11,11 +11,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	sdkagent "github.com/vvsynapse/temporal-agent-sdk-go/pkg/agent"
-	"github.com/vvsynapse/temporal-agent-sdk-go/pkg/llm"
-	"github.com/vvsynapse/temporal-agent-sdk-go/pkg/llm/openai"
+	sdkagent "github.com/vvsynapse/agent-sdk-go/pkg/agent"
+	"github.com/vvsynapse/agent-sdk-go/pkg/interfaces"
+	"github.com/vvsynapse/agent-sdk-go/pkg/llm"
+	"github.com/vvsynapse/agent-sdk-go/pkg/llm/openai"
 
 	agentconv "github.com/vvsynapse/agent-demo/server/agent"
+	demollm "github.com/vvsynapse/agent-demo/server/llm"
 	"github.com/vvsynapse/agent-demo/server/config"
 	"github.com/vvsynapse/agent-demo/server/db"
 	"github.com/vvsynapse/agent-demo/server/handlers"
@@ -49,13 +51,22 @@ func main() {
 	pgConv := agentconv.NewPGConversation(msgStore)
 
 	// ── LLM client ───────────────────────────────────────────────────────────
-	llmClient, err := openai.NewClient(
-		llm.WithAPIKey(cfg.LLMAPIKey),
-		llm.WithModel(cfg.LLMModel),
-		llm.WithBaseURL(cfg.LLMBaseURL),
-	)
-	if err != nil {
-		log.Fatalf("llm client: %v", err)
+	// Use Azure client when LLM_API_VERSION is set (Azure requires api-version + api-key header).
+	// Otherwise use the SDK's standard OpenAI client.
+	var llmClient interfaces.LLMClient
+	if cfg.LLMAPIVersion != "" {
+		llmClient = demollm.NewAzureClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, cfg.LLMAPIVersion)
+		log.Printf("using Azure OpenAI client (api-version: %s)", cfg.LLMAPIVersion)
+	} else {
+		c, err := openai.NewClient(
+			llm.WithAPIKey(cfg.LLMAPIKey),
+			llm.WithModel(cfg.LLMModel),
+			llm.WithBaseURL(cfg.LLMBaseURL),
+		)
+		if err != nil {
+			log.Fatalf("llm client: %v", err)
+		}
+		llmClient = c
 	}
 
 	// ── Agent (SDK) ──────────────────────────────────────────────────────────

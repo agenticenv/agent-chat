@@ -4,7 +4,7 @@ package agent
 
 import (
 	"context"
-	"github.com/vvsynapse/temporal-agent-sdk-go/pkg/interfaces"
+	"github.com/vvsynapse/agent-sdk-go/pkg/interfaces"
 	"github.com/vvsynapse/agent-demo/server/store"
 )
 

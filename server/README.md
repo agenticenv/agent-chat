@@ -90,11 +90,10 @@ PostgreSQL is provisioned automatically by Docker Compose. The server runs migra
 
 ## Built with
 
-- **[agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go)** — AI agent SDK for Go (Powered by [Temporal](https://temporal.io))
+- **[temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go)** — AI agent SDK for Go (powered by [Temporal](https://temporal.io))
 - **[chi](https://github.com/go-chi/chi)** — HTTP router
 - **[pgx](https://github.com/jackc/pgx)** — PostgreSQL driver
 - **PostgreSQL** — Data persistence
-- **[Temporal](https://temporal.io)** — Workflow orchestration
 
 ---
 

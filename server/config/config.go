@@ -16,6 +16,7 @@ type Config struct {
 	LLMAPIKey         string
 	LLMModel          string
 	LLMBaseURL        string
+	LLMAPIVersion     string // optional; when set, uses Azure OpenAI client
 	SystemPrompt      string
 	ConvWindowSize    int
 }
@@ -30,6 +31,7 @@ func Load() (*Config, error) {
 		LLMAPIKey:         getEnv("LLM_API_KEY", ""),
 		LLMModel:          getEnv("LLM_MODEL", "gpt-4o"),
 		LLMBaseURL:        getEnv("LLM_BASE_URL", ""),
+		LLMAPIVersion:     getEnv("LLM_API_VERSION", ""),
 		SystemPrompt:      getEnv("SYSTEM_PROMPT", "You are a helpful assistant."),
 	}
 
