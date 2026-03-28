@@ -1,14 +1,14 @@
 # agent-demo
 
-Agent demo — a sample app built with [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go). It includes a chat-style React UI and a Go server with REST APIs, aimed at single-agent chat today and **multi-agent** selection, routing, and orchestration demos as the project grows.
+Agent demo — a sample app built with [agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go) (Powered by [Temporal](https://temporal.io)). It includes a chat-style React UI and a Go server with REST APIs, aimed at single-agent chat today and **multi-agent** selection, routing, and orchestration demos as the project grows.
 
 ## Overview
 
-**agent-demo** uses [temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go) for durable, workflow-orchestrated conversations. Today it provides a general chat experience; the same codebase is meant to extend with agent selection and multi-agent orchestration examples.
+**agent-demo** uses [agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go) (Powered by [Temporal](https://temporal.io)) for durable, workflow-orchestrated conversations. Today it provides a general chat experience; the same codebase is meant to extend with agent selection and multi-agent orchestration examples.
 
 ## Built with
 
-- **[temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go)** — Temporal-native AI agent SDK for Go
+- **[agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go)** — AI agent SDK for Go (Powered by [Temporal](https://temporal.io))
 - **React Router 7 + Vite** — Single-page app UI
 - **Tailwind CSS v4** — Styling
 
