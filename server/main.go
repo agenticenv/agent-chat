@@ -50,7 +50,7 @@ func main() {
 
 	// ── LLM client ───────────────────────────────────────────────────────────
 	llmClient, err := openai.NewClient(
-		llm.WithAPIKey(cfg.AnthropicKey),
+		llm.WithAPIKey(cfg.LLMAPIKey),
 		llm.WithModel(cfg.LLMModel),
 		llm.WithBaseURL(cfg.LLMBaseURL),
 	)
@@ -62,9 +62,9 @@ func main() {
 	// The SDK handles all Temporal internals: client, worker, workflows, activities.
 	a, err := sdkagent.NewAgent(
 		sdkagent.WithTemporalConfig(&sdkagent.TemporalConfig{
-			Host:      cfg.TemporalHost,
-			Port:      cfg.TemporalPort,
-			Namespace: cfg.TemporalNamespace,
+			Host:      cfg.AgentSDKHost,
+			Port:      cfg.AgentSDKPort,
+			Namespace: cfg.AgentSDKNamespace,
 			TaskQueue: cfg.TaskQueue,
 		}),
 		sdkagent.WithSystemPrompt(cfg.SystemPrompt),
