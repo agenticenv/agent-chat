@@ -9,7 +9,7 @@ COPY --from=sdk . /sdk
 COPY server/ .
 
 # Point go.mod at the local SDK copy so we don't need git credentials
-RUN go mod edit -replace github.com/vvsynapse/temporal-agent-sdk-go=/sdk
+RUN go mod edit -replace github.com/vvsynapse/agent-sdk-go=/sdk
 RUN go mod tidy
 RUN CGO_ENABLED=0 go build -o /server .
 

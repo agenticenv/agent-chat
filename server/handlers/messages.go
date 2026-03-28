@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vvsynapse/agent-demo/server/store"
-	sdkagent "github.com/vvsynapse/temporal-agent-sdk-go/pkg/agent"
+	sdkagent "github.com/vvsynapse/agent-sdk-go/pkg/agent"
 )
 
 type MessageHandler struct {

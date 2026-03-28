@@ -5,7 +5,8 @@ go 1.24.4
 require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/jackc/pgx/v5 v5.6.0
-	github.com/vvsynapse/temporal-agent-sdk-go v0.0.4
+	github.com/openai/openai-go/v3 v3.29.0
+	github.com/vvsynapse/agent-sdk-go v0.0.7
 )
 
 require (
@@ -20,7 +21,6 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/nexus-rpc/sdk-go v0.6.0 // indirect
-	github.com/openai/openai-go/v3 v3.29.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
