@@ -14,44 +14,9 @@ Agent demo — a sample app built with [agent-sdk-go](https://github.com/vvsynap
 
 ## Setup
 
-### Run the UI locally
+### UI (local dev & Docker)
 
-```bash
-cd ui
-npm install
-npm run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173). The UI fetches data from the backend (proxied via `/api` in dev). Start the server for full functionality.
-
-### Environment variables
-
-| Variable | Where | Description |
-|----------|-------|-------------|
-| `API_PROXY_TARGET` | Local dev (`.env`) | Backend URL for Vite proxy. Default `http://localhost:8080`. Use when backend runs on another port. |
-| `API_BASE` | Docker / docker-compose | API base URL at runtime. Default `/api` (same-origin). Use full URL when backend is elsewhere. |
-
-**Local dev — backend on different port:**
-
-```bash
-# ui/.env
-API_PROXY_TARGET=http://localhost:3001
-```
-
-Restart `npm run dev` after changing.
-
-**Docker — point to backend:**
-
-```bash
-docker run -p 3000:3000 -e API_BASE=http://localhost:8080/api agent-demo-ui
-```
-
-Or in `docker-compose.yml`:
-
-```yaml
-environment:
-  API_BASE: ${API_BASE:-http://localhost:8080/api}
-```
+See **[ui/README.md](ui/README.md)** for `npm run dev`, Vite proxy / `API_PROXY_TARGET`, and building or running the UI Docker image (`API_BASE`, `PORT`).
 
 ### Run the server
 
@@ -99,8 +64,4 @@ docker compose down
 
 ### Building the UI image
 
-```bash
-docker build -t agent-demo-ui ./ui
-```
-
-Runtime env vars: `API_BASE`, `PORT`. See [Environment variables](#environment-variables) above.
+See **[ui/README.md](ui/README.md#docker)** (build and runtime env vars).
