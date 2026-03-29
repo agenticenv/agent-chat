@@ -12,6 +12,7 @@ server/
 ├── config/       # Environment-based configuration
 ├── db/           # PostgreSQL connection and migrations
 ├── handlers/     # HTTP route handlers
+├── llm/          # Azure OpenAI client (adds api-key header + api-version param)
 ├── store/        # Data access layer
 ├── Dockerfile
 └── main.go       # Entrypoint — starts HTTP server and Temporal worker
@@ -27,15 +28,15 @@ server/
 From the **repository root**:
 
 ```bash
-# Start all dependencies and the server
+# Backend only (server + its dependencies, no React UI)
+# Use this when running the UI locally with npm run dev
 docker compose up -d postgres temporal server
 ```
 
 The server will be available at [http://localhost:8080](http://localhost:8080). Temporal UI is at [http://localhost:8233](http://localhost:8233).
 
-To start everything (server, UI, and all dependencies):
-
 ```bash
+# Full stack (backend + React UI + Temporal dashboard)
 docker compose up -d
 ```
 
@@ -63,14 +64,16 @@ docker compose down
 | `AGENT_SDK_TASK_QUEUE` | `ai-assistant` | Agent SDK task queue name |
 | `LLM_API_KEY` | *(required)* | API key for LLM access |
 | `LLM_MODEL` | `gpt-4o` | Model identifier |
-| `LLM_BASE_URL` | *(empty)* | LLM base URL (empty uses provider default) |
+| `LLM_BASE_URL` | *(empty)* | LLM base URL with trailing slash (empty uses OpenAI default) |
+| `LLM_API_VERSION` | *(empty)* | Azure OpenAI api-version (e.g. `2024-10-01-preview`). When set, uses the Azure client with `api-key` header |
 | `SYSTEM_PROMPT` | `You are a helpful assistant.` | System prompt sent to the LLM |
 | `CONVERSATION_WINDOW_SIZE` | `20` | Number of recent messages included in LLM context |
 
-Set `LLM_API_KEY` in `server/.env` or pass it directly:
+Copy the example and fill in your values:
 
 ```bash
-LLM_API_KEY=your-key docker compose up -d server
+cp server/.env.example server/.env
+# then edit server/.env
 ```
 
 ## API endpoints
@@ -90,7 +93,7 @@ PostgreSQL is provisioned automatically by Docker Compose. The server runs migra
 
 ## Built with
 
-- **[temporal-agent-sdk-go](https://github.com/vvsynapse/temporal-agent-sdk-go)** — AI agent SDK for Go (powered by [Temporal](https://temporal.io))
+- **[agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go)** — AI agent SDK for Go (powered by [Temporal](https://temporal.io))
 - **[chi](https://github.com/go-chi/chi)** — HTTP router
 - **[pgx](https://github.com/jackc/pgx)** — PostgreSQL driver
 - **PostgreSQL** — Data persistence
