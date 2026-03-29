@@ -18,7 +18,9 @@ Agent demo — a sample app built with [agent-sdk-go](https://github.com/vvsynap
 
 See **[ui/README.md](ui/README.md)** for `npm run dev`, Vite proxy / `API_PROXY_TARGET`, and building or running the UI Docker image (`API_BASE`, `PORT`).
 
-### Run the server
+### Server
+
+See **[server/README.md](server/README.md)** for environment variables, API endpoints, architecture details, and running the server with Docker.
 
 ```bash
 docker compose up -d temporal postgres
