@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/vvsynapse/agent-demo/server/store"
-	sdkagent "github.com/vvsynapse/agent-sdk-go/pkg/agent"
+	"github.com/agenticenv/agent-chat/server/store"
+	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
 )
 
 type MessageHandler struct {

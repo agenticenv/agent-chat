@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, forwardRef } from "react"
+import { useSearchParams } from "react-router"
 import {
   getConversations,
   createConversation,
@@ -9,15 +10,11 @@ import {
   type Conversation,
   type Message,
 } from "../api"
+import { MessageMarkdown } from "../components/MessageMarkdown"
 
 const PlusIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M5 12h14M12 5v14" strokeLinecap="round" />
-  </svg>
-)
-const MessageIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
   </svg>
 )
 const SendIcon = () => (
@@ -57,20 +54,47 @@ const MoonIcon = () => (
   </svg>
 )
 
-function PromptInput({
-  value,
-  onChange,
-  onKeyDown,
-  onSend,
-}: {
-  value: string
-  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
-  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
-  onSend: () => void
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null)
+function AssistantTypingBubble() {
+  return (
+    <div className="flex justify-start">
+      <div
+        className="max-w-[85%] rounded-2xl rounded-bl-md bg-muted px-4 py-3"
+        aria-busy
+        aria-label="Assistant is typing"
+      >
+        <div className="flex gap-1.5">
+          <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:0ms]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const PromptInput = forwardRef<
+  HTMLTextAreaElement,
+  {
+    value: string
+    onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
+    onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
+    onSend: () => void
+    /** When true, input is read-only and send is disabled (waiting for assistant). Keep textarea focusable so the caret does not disappear. */
+    disabled?: boolean
+  }
+>(function PromptInput({ value, onChange, onKeyDown, onSend, disabled }, ref) {
+  const innerRef = useRef<HTMLTextAreaElement>(null)
+  const setRefs = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      innerRef.current = el
+      if (typeof ref === "function") ref(el)
+      else if (ref) (ref as React.MutableRefObject<HTMLTextAreaElement | null>).current = el
+    },
+    [ref]
+  )
+
   useEffect(() => {
-    const el = ref.current
+    const el = innerRef.current
     if (!el) return
     el.style.height = "auto"
     const maxH = 8 * 24
@@ -78,26 +102,36 @@ function PromptInput({
   }, [value])
 
   return (
-    <div className="flex items-end gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2">
+    <div
+      className={`flex items-end gap-2 rounded-xl border border-border bg-muted/30 px-4 py-2 ${disabled ? "opacity-70" : ""}`}
+    >
       <textarea
-        ref={ref}
-        placeholder="Type a message..."
+        ref={setRefs}
+        placeholder="Ask anything…"
         rows={1}
-        className="min-h-[44px] max-h-[192px] flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2.5 text-base outline-none placeholder:text-muted-foreground cursor-text"
+        readOnly={disabled}
+        aria-busy={disabled || undefined}
+        enterKeyHint="send"
+        className={`min-h-[44px] max-h-[192px] flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2.5 text-base outline-none placeholder:text-muted-foreground cursor-text ${
+          disabled ? "cursor-wait" : ""
+        }`}
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
       />
       <button
+        type="button"
         onClick={onSend}
-        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90"
+        disabled={disabled}
+        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
         aria-label="Send"
       >
         <SendIcon />
       </button>
     </div>
   )
-}
+})
+PromptInput.displayName = "PromptInput"
 
 type ThemeMode = "light" | "dark"
 
@@ -114,8 +148,29 @@ function getEffectiveTheme(): ThemeMode {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
+/** Sidebar title from the first user message (persisted via API create + PATCH). */
+function titleFromFirstMessage(text: string): string {
+  return text.slice(0, 32) + (text.length > 32 ? "…" : "")
+}
+
+const DEFAULT_CHAT_TITLE = "New chat"
+
+function isDefaultChatTitle(title: string | undefined): boolean {
+  return title === DEFAULT_CHAT_TITLE || title === "New conversation"
+}
+
+/** Persist selected conversation in the URL as `?chat=<id>` so refresh keeps the same chat. */
+function syncChatUrl(setSearchParams: ReturnType<typeof useSearchParams>[1], chatId: string | null) {
+  if (chatId) {
+    setSearchParams({ chat: chatId }, { replace: true })
+  } else {
+    setSearchParams({}, { replace: true })
+  }
+}
+
 export default function AssistantPage() {
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [chats, setChats] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [input, setInput] = useState("")
@@ -123,15 +178,33 @@ export default function AssistantPage() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
-  const [renameConv, setRenameConv] = useState<{ id: string; title: string } | null>(null)
+  const [renameChat, setRenameChat] = useState<{ id: string; title: string } | null>(null)
   const [renameValue, setRenameValue] = useState("")
-  const [deleteConvId, setDeleteConvId] = useState<string | null>(null)
+  const [deleteChatId, setDeleteChatId] = useState<string | null>(null)
   const [themeMode, setThemeMode] = useState<ThemeMode>("light")
 
   useEffect(() => {
     setThemeMode(getEffectiveTheme())
   }, [])
   const menuRef = useRef<HTMLDivElement>(null)
+  /**
+   * Blocks getMessages while the first message is in flight — avoids Strict Mode / empty fetch
+   * overwriting optimistic [userMsg]. Cleared in `finally` after sendMessage.
+   */
+  const pendingFirstMessageForChatIdRef = useRef<string | null>(null)
+  /** Set as soon as the user sends from the landing page so the hero does not flash before paint. */
+  const [hasLeftLanding, setHasLeftLanding] = useState(false)
+  /** True while waiting for the assistant reply after sendMessage. */
+  const [awaitingAssistantReply, setAwaitingAssistantReply] = useState(false)
+  const sendInFlightRef = useRef(false)
+  /** Shared ref so focus stays in the composer after send (center or bottom layout). */
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+  const prevShowCenterPromptRef = useRef<boolean | undefined>(undefined)
+  const prevAwaitingReplyRef = useRef(false)
+  /** Apply `?chat=` from the URL once after the conversation list has loaded. */
+  const appliedInitialChatFromUrlRef = useRef(false)
+  /** Incremented on each "New chat" click so we can focus the composer even when already on the landing layout. */
+  const [newChatFocusNonce, setNewChatFocusNonce] = useState(0)
 
   const handleThemeToggle = () => {
     const next = themeMode === "dark" ? "light" : "dark"
@@ -139,26 +212,47 @@ export default function AssistantPage() {
     applyTheme(next)
   }
 
-  const loadConversations = useCallback(async () => {
+  const loadChats = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const list = await getConversations()
-      setConversations(list)
+      setChats(list)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load conversations")
+      setError(e instanceof Error ? e.message : "Failed to load chats")
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    loadConversations()
-  }, [loadConversations])
+    loadChats()
+  }, [loadChats])
+
+  useEffect(() => {
+    if (loading || appliedInitialChatFromUrlRef.current) return
+    const chatId = searchParams.get("chat")
+    if (!chatId) {
+      appliedInitialChatFromUrlRef.current = true
+      return
+    }
+    if (chats.some((c) => c.id === chatId)) {
+      setSelectedId(chatId)
+    } else {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete("chat")
+        return next
+      }, { replace: true })
+    }
+    appliedInitialChatFromUrlRef.current = true
+  }, [loading, chats, searchParams, setSearchParams])
 
   useEffect(() => {
     if (!selectedId) {
-      setMessages([])
+      return
+    }
+    if (pendingFirstMessageForChatIdRef.current === selectedId) {
       return
     }
     let cancelled = false
@@ -202,33 +296,38 @@ export default function AssistantPage() {
     return () => mq.removeEventListener("change", handler)
   }, [])
 
-  const handleNewConversation = () => {
+  const handleNewChat = () => {
     setError(null)
     setMenuOpenId(null)
+    setHasLeftLanding(false)
+    setAwaitingAssistantReply(false)
     setSelectedId(null)
     setMessages([])
+    syncChatUrl(setSearchParams, null)
+    setNewChatFocusNonce((n) => n + 1)
   }
 
-  const handleSelectConversation = (id: string | null) => {
+  const handleSelectChat = (id: string | null) => {
     setMenuOpenId(null)
     setSelectedId(id)
+    syncChatUrl(setSearchParams, id)
   }
 
-  const handleRenameOpen = (conv: Conversation) => {
+  const handleRenameOpen = (chat: Conversation) => {
     setMenuOpenId(null)
-    setRenameConv({ id: conv.id, title: conv.title })
-    setRenameValue(conv.title)
+    setRenameChat({ id: chat.id, title: chat.title })
+    setRenameValue(chat.title)
   }
 
   const handleRenameSave = async () => {
-    if (!renameConv || !renameValue.trim()) return
+    if (!renameChat || !renameValue.trim()) return
     setError(null)
     try {
-      await renameConversation(renameConv.id, renameValue.trim())
-      setConversations((prev) =>
-        prev.map((c) => (c.id === renameConv.id ? { ...c, title: renameValue.trim() } : c))
+      await renameConversation(renameChat.id, renameValue.trim())
+      setChats((prev) =>
+        prev.map((c) => (c.id === renameChat.id ? { ...c, title: renameValue.trim() } : c))
       )
-      setRenameConv(null)
+      setRenameChat(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to rename")
     }
@@ -236,25 +335,26 @@ export default function AssistantPage() {
 
   const handleDeleteOpen = (id: string) => {
     setMenuOpenId(null)
-    setDeleteConvId(id)
+    setDeleteChatId(id)
   }
 
   const handleDeleteConfirm = async () => {
-    if (!deleteConvId) return
+    if (!deleteChatId) return
     setError(null)
     try {
-      await deleteConversation(deleteConvId)
+      await deleteConversation(deleteChatId)
       let nextSelection: string | null | undefined = undefined
-      setConversations((prev) => {
-        const next = prev.filter((c) => c.id !== deleteConvId)
-        if (selectedId === deleteConvId) nextSelection = next[0]?.id ?? null
+      setChats((prev) => {
+        const next = prev.filter((c) => c.id !== deleteChatId)
+        if (selectedId === deleteChatId) nextSelection = next[0]?.id ?? null
         return next
       })
       if (nextSelection !== undefined) {
         setSelectedId(nextSelection)
         setMessages([])
+        syncChatUrl(setSearchParams, nextSelection)
       }
-      setDeleteConvId(null)
+      setDeleteChatId(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete")
     }
@@ -263,60 +363,118 @@ export default function AssistantPage() {
   const handleSend = async () => {
     const text = input.trim()
     if (!text) return
+    if (sendInFlightRef.current) return
+    sendInFlightRef.current = true
+
     if (!selectedId) {
+      setHasLeftLanding(true)
+      const userMsg: Message = {
+        id: `temp-${Date.now()}`,
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+      }
+      setInput("")
+      setMessages([userMsg])
+      setAwaitingAssistantReply(true)
       try {
-        const conv = await createConversation()
-        setConversations((prev) => [conv, ...prev])
+        const conv = await createConversation(titleFromFirstMessage(text))
+        setChats((prev) => [conv, ...prev])
+        pendingFirstMessageForChatIdRef.current = conv.id
         setSelectedId(conv.id)
-        const userMsg: Message = { id: `temp-${Date.now()}`, role: "user", content: text, createdAt: new Date().toISOString() }
-        setMessages([userMsg])
-        setInput("")
+        syncChatUrl(setSearchParams, conv.id)
         const msg = await sendMessage(conv.id, text)
         setMessages([userMsg, msg])
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === conv.id ? { ...c, title: text.slice(0, 32) + (text.length > 32 ? "…" : "") } : c
-          )
-        )
       } catch (e) {
+        setMessages([])
+        setHasLeftLanding(false)
         setError(e instanceof Error ? e.message : "Failed to send")
+      } finally {
+        setAwaitingAssistantReply(false)
+        pendingFirstMessageForChatIdRef.current = null
+        sendInFlightRef.current = false
       }
       return
     }
-    const userMsg: Message = { id: `temp-${Date.now()}`, role: "user", content: text, createdAt: new Date().toISOString() }
+
+    const userMsg: Message = {
+      id: `temp-${Date.now()}`,
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    }
     setMessages((prev) => [...prev, userMsg])
     setInput("")
+    setAwaitingAssistantReply(true)
     try {
       const msg = await sendMessage(selectedId, text)
       setMessages((prev) => [...prev, msg])
-      const conv = conversations.find((c) => c.id === selectedId)
-      if (conv?.title === "New conversation") {
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === selectedId ? { ...c, title: text.slice(0, 32) + (text.length > 32 ? "…" : "") } : c
-          )
+      const chat = chats.find((c) => c.id === selectedId)
+      if (isDefaultChatTitle(chat?.title)) {
+        const newTitle = titleFromFirstMessage(text)
+        await renameConversation(selectedId, newTitle)
+        setChats((prev) =>
+          prev.map((c) => (c.id === selectedId ? { ...c, title: newTitle } : c))
         )
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send message")
+    } finally {
+      setAwaitingAssistantReply(false)
+      sendInFlightRef.current = false
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (awaitingAssistantReply) return
+    // IME composition (e.g. CJK): Enter often confirms input; do not submit the message.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    const enter =
+      e.key === "Enter" || e.key === "NumpadEnter" || e.code === "Enter" || e.code === "NumpadEnter"
+    if (enter && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      e.stopPropagation()
+      void handleSend()
     }
   }
 
-  const showCenterPrompt = !selectedId || messages.length === 0
+  const showCenterPrompt = !selectedId && messages.length === 0 && !hasLeftLanding
+
+  /** After "New chat", move the caret into the prompt (including when already on the landing view). */
+  useLayoutEffect(() => {
+    if (newChatFocusNonce === 0 || !showCenterPrompt) return
+    composerRef.current?.focus()
+  }, [newChatFocusNonce, showCenterPrompt])
+
+  /** First message moves layout from center hero to thread; focus the bottom composer. */
+  useLayoutEffect(() => {
+    if (prevShowCenterPromptRef.current === undefined) {
+      prevShowCenterPromptRef.current = showCenterPrompt
+      return
+    }
+    if (prevShowCenterPromptRef.current && !showCenterPrompt) {
+      composerRef.current?.focus()
+    }
+    prevShowCenterPromptRef.current = showCenterPrompt
+  }, [showCenterPrompt])
+
+  /** After the assistant reply finishes, put the caret back in the input. */
+  useEffect(() => {
+    if (prevAwaitingReplyRef.current && !awaitingAssistantReply) {
+      const id = requestAnimationFrame(() => {
+        composerRef.current?.focus()
+      })
+      return () => cancelAnimationFrame(id)
+    }
+    prevAwaitingReplyRef.current = awaitingAssistantReply
+  }, [awaitingAssistantReply])
 
   return (
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-muted/30">
         <div className="flex items-center justify-between border-b border-border p-3">
-          <h2 className="text-sm font-semibold">Agent demo</h2>
+          <h2 className="text-sm font-semibold">Agent Chat</h2>
           <button
             type="button"
             onClick={handleThemeToggle}
@@ -328,11 +486,11 @@ export default function AssistantPage() {
         </div>
         <div className="p-2">
           <button
-            onClick={handleNewConversation}
+            onClick={handleNewChat}
             className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted"
           >
             <PlusIcon />
-            New conversation
+            New chat
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -344,7 +502,7 @@ export default function AssistantPage() {
             </div>
           ) : (
             <div className="space-y-1">
-              {conversations.map((c) => (
+              {chats.map((c) => (
                 <div
                   key={c.id}
                   className={`group flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
@@ -354,11 +512,10 @@ export default function AssistantPage() {
                   }`}
                 >
                   <button
-                    onClick={() => handleSelectConversation(c.id)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+                    onClick={() => handleSelectChat(c.id)}
+                    className="min-w-0 flex-1 cursor-pointer truncate text-left"
                   >
-                    <MessageIcon />
-                    <span className="truncate">{c.title}</span>
+                    {c.title}
                   </button>
                   <div ref={menuOpenId === c.id ? menuRef : undefined} className="relative shrink-0">
                     <button
@@ -408,12 +565,14 @@ export default function AssistantPage() {
         {showCenterPrompt ? (
           <div className="flex flex-1 flex-col items-center justify-center px-4">
             <h1 className="mb-8 text-2xl font-semibold">How can I help you today?</h1>
-            <div className="mx-auto w-full max-w-2xl">
+            <div className="mx-auto w-full max-w-3xl">
               <PromptInput
+                ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onSend={handleSend}
+                disabled={awaitingAssistantReply}
               />
             </div>
           </div>
@@ -435,15 +594,8 @@ export default function AssistantPage() {
                     {messages.map((msg) => (
                       <div
                         key={msg.id}
-                        className={`flex gap-4 ${
-                          msg.role === "user" ? "justify-end" : "justify-start"
-                        }`}
+                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                       >
-                        {msg.role === "assistant" && (
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-                            <MessageIcon />
-                          </div>
-                        )}
                         <div
                           className={`max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
                             msg.role === "user"
@@ -451,22 +603,27 @@ export default function AssistantPage() {
                               : "rounded-bl-md bg-muted"
                           }`}
                         >
-                          {msg.content}
+                          <MessageMarkdown
+                            content={msg.content}
+                            variant={msg.role === "user" ? "user" : "assistant"}
+                          />
                         </div>
-                        {msg.role === "user" && <div className="w-8 shrink-0" />}
                       </div>
                     ))}
+                    {awaitingAssistantReply && <AssistantTypingBubble />}
                   </div>
                 )}
               </div>
             </div>
-            <div className="shrink-0 bg-background px-4 py-4">
-              <div className="mx-auto max-w-2xl">
+            <div className="shrink-0 bg-background py-4">
+              <div className="mx-auto w-full max-w-3xl px-4">
                 <PromptInput
+                  ref={composerRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   onSend={handleSend}
+                  disabled={awaitingAssistantReply}
                 />
               </div>
             </div>
@@ -475,32 +632,32 @@ export default function AssistantPage() {
       </main>
 
       {/* Rename modal */}
-      {renameConv && (
+      {renameChat && (
         <div
           className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/50"
-          onClick={() => setRenameConv(null)}
+          onClick={() => setRenameChat(null)}
         >
           <div
             className="w-full max-w-md cursor-default rounded-xl border border-border bg-background p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-4 text-lg font-semibold">Rename conversation</h3>
+            <h3 className="mb-4 text-lg font-semibold">Rename chat</h3>
             <input
               type="text"
               className="mb-6 w-full cursor-text rounded-lg border border-border bg-background px-3 py-2 outline-ring focus:ring-2"
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              placeholder="Conversation name"
+              placeholder="Chat name"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleRenameSave()
-                if (e.key === "Escape") setRenameConv(null)
+                if (e.key === "Escape") setRenameChat(null)
               }}
               autoFocus
             />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setRenameConv(null)}
+                onClick={() => setRenameChat(null)}
                 className="cursor-pointer rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted"
               >
                 Cancel
@@ -519,26 +676,25 @@ export default function AssistantPage() {
       )}
 
       {/* Delete confirmation */}
-      {deleteConvId && (
+      {deleteChatId && (
         <div
           className="fixed inset-0 z-50 flex cursor-pointer items-center justify-center bg-black/50"
-          onClick={() => setDeleteConvId(null)}
+          onClick={() => setDeleteChatId(null)}
         >
           <div
             className="w-full max-w-md cursor-default rounded-xl border border-border bg-background p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="mb-2 text-lg font-semibold text-destructive">
-              Delete conversation?
+              Delete chat?
             </h3>
             <p className="mb-6 text-sm text-muted-foreground">
-              This action cannot be undone. All messages in this conversation will be permanently
-              deleted.
+              This action cannot be undone. All messages in this chat will be permanently deleted.
             </p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setDeleteConvId(null)}
+                onClick={() => setDeleteChatId(null)}
                 className="cursor-pointer rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted"
               >
                 Cancel

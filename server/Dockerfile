@@ -1,20 +1,17 @@
 FROM golang:1.24-alpine AS builder
-RUN apk --no-cache add git
+RUN apk --no-cache add ca-certificates git
+
 WORKDIR /app
 
-# Copy the SDK from the sibling directory (passed as additional context)
-COPY --from=sdk . /sdk
+COPY server/go.mod server/go.sum ./
+RUN go mod download
 
-# Copy server source
 COPY server/ .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /server .
 
-# Point go.mod at the local SDK copy so we don't need git credentials
-RUN go mod edit -replace github.com/vvsynapse/agent-sdk-go=/sdk
-RUN go mod tidy
-RUN CGO_ENABLED=0 go build -o /server .
-
-FROM alpine:latest
+FROM alpine:3.21
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /server /server
 EXPOSE 8080
+USER nobody
 CMD ["/server"]

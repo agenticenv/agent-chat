@@ -48,31 +48,29 @@ export interface Message {
   createdAt?: string
 }
 
-/* ----- Real API ----- */
-
-async function getConversationsReal(): Promise<Conversation[]> {
+export async function getConversations(): Promise<Conversation[]> {
   const base = await getApiBase()
   const res = await fetch(`${base}/conversations`)
-  if (!res.ok) throw new Error(`Failed to fetch conversations: ${res.status}`)
+  if (!res.ok) throw new Error(`Failed to fetch chats: ${res.status}`)
   const data = (await parseJson(res)) as Conversation[] | { conversations?: Conversation[] }
   return Array.isArray(data) ? data : data.conversations ?? []
 }
 
-async function createConversationReal(title = "New conversation"): Promise<Conversation> {
+export async function createConversation(title = "New chat"): Promise<Conversation> {
   const base = await getApiBase()
   const res = await fetch(`${base}/conversations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   })
-  if (!res.ok) throw new Error(`Failed to create conversation: ${res.status}`)
+  if (!res.ok) throw new Error(`Failed to create chat: ${res.status}`)
   const data = (await parseJson(res)) as { conversation?: Conversation } & Conversation
   const conv = data.conversation ?? data
-  if (!conv?.id || !conv?.title) throw new Error("Invalid conversation response")
+  if (!conv?.id || !conv?.title) throw new Error("Invalid chat response")
   return conv
 }
 
-async function getMessagesReal(conversationId: string): Promise<Message[]> {
+export async function getMessages(conversationId: string): Promise<Message[]> {
   const base = await getApiBase()
   const res = await fetch(`${base}/conversations/${conversationId}/messages`)
   if (!res.ok) throw new Error(`Failed to fetch messages: ${res.status}`)
@@ -80,7 +78,7 @@ async function getMessagesReal(conversationId: string): Promise<Message[]> {
   return Array.isArray(data) ? data : data.messages ?? []
 }
 
-async function sendMessageReal(conversationId: string, content: string): Promise<Message> {
+export async function sendMessage(conversationId: string, content: string): Promise<Message> {
   const base = await getApiBase()
   const res = await fetch(`${base}/conversations/${conversationId}/messages`, {
     method: "POST",
@@ -94,7 +92,7 @@ async function sendMessageReal(conversationId: string, content: string): Promise
   return msg
 }
 
-async function renameConversationReal(
+export async function renameConversation(
   conversationId: string,
   title: string
 ): Promise<void> {
@@ -104,136 +102,13 @@ async function renameConversationReal(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   })
-  if (!res.ok) throw new Error(`Failed to rename: ${res.status}`)
+  if (!res.ok) throw new Error(`Failed to rename chat: ${res.status}`)
 }
 
-async function deleteConversationReal(conversationId: string): Promise<void> {
+export async function deleteConversation(conversationId: string): Promise<void> {
   const base = await getApiBase()
   const res = await fetch(`${base}/conversations/${conversationId}`, {
     method: "DELETE",
   })
-  if (!res.ok) throw new Error(`Failed to delete: ${res.status}`)
-}
-
-/* ----- Mock API (in-memory when backend unavailable) ----- */
-
-const mockStore: {
-  conversations: Conversation[]
-  messagesByConv: Map<string, Message[]>
-} = { conversations: [], messagesByConv: new Map() }
-
-function mockId() {
-  return crypto.randomUUID?.() ?? `mock-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-async function getConversationsMock(): Promise<Conversation[]> {
-  return [...mockStore.conversations]
-}
-
-async function createConversationMock(title = "New conversation"): Promise<Conversation> {
-  const conv: Conversation = { id: mockId(), title }
-  mockStore.conversations.unshift(conv)
-  mockStore.messagesByConv.set(conv.id, [])
-  return conv
-}
-
-async function getMessagesMock(conversationId: string): Promise<Message[]> {
-  return [...(mockStore.messagesByConv.get(conversationId) ?? [])]
-}
-
-async function sendMessageMock(conversationId: string, content: string): Promise<Message> {
-  const userMsg: Message = { id: mockId(), role: "user", content }
-  const convMsgs = mockStore.messagesByConv.get(conversationId) ?? []
-  convMsgs.push(userMsg)
-  mockStore.messagesByConv.set(conversationId, convMsgs)
-
-  const conv = mockStore.conversations.find((c) => c.id === conversationId)
-  if (conv && conv.title === "New conversation") {
-    conv.title = content.slice(0, 32) + (content.length > 32 ? "…" : "")
-  }
-
-  const assistantMsg: Message = {
-    id: mockId(),
-    role: "assistant",
-    content: "Backend not connected. Add REST API routes to enable real responses.",
-  }
-  convMsgs.push(assistantMsg)
-  return assistantMsg
-}
-
-async function renameConversationMock(conversationId: string, title: string): Promise<void> {
-  const conv = mockStore.conversations.find((c) => c.id === conversationId)
-  if (conv) conv.title = title
-}
-
-async function deleteConversationMock(conversationId: string): Promise<void> {
-  mockStore.conversations = mockStore.conversations.filter((c) => c.id !== conversationId)
-  mockStore.messagesByConv.delete(conversationId)
-}
-
-/* ----- Public API (tries real, falls back to mock on failure) ----- */
-
-let useMock = false
-
-export async function getConversations(): Promise<Conversation[]> {
-  if (useMock) return getConversationsMock()
-  try {
-    return await getConversationsReal()
-  } catch {
-    useMock = true
-    return getConversationsMock()
-  }
-}
-
-export async function createConversation(title = "New conversation"): Promise<Conversation> {
-  if (useMock) return createConversationMock(title)
-  try {
-    return await createConversationReal(title)
-  } catch {
-    useMock = true
-    return createConversationMock(title)
-  }
-}
-
-export async function getMessages(conversationId: string): Promise<Message[]> {
-  if (useMock) return getMessagesMock(conversationId)
-  try {
-    return await getMessagesReal(conversationId)
-  } catch {
-    useMock = true
-    return getMessagesMock(conversationId)
-  }
-}
-
-export async function sendMessage(conversationId: string, content: string): Promise<Message> {
-  if (useMock) return sendMessageMock(conversationId, content)
-  try {
-    return await sendMessageReal(conversationId, content)
-  } catch {
-    useMock = true
-    return sendMessageMock(conversationId, content)
-  }
-}
-
-export async function renameConversation(
-  conversationId: string,
-  title: string
-): Promise<void> {
-  if (useMock) return renameConversationMock(conversationId, title)
-  try {
-    return await renameConversationReal(conversationId, title)
-  } catch {
-    useMock = true
-    return renameConversationMock(conversationId, title)
-  }
-}
-
-export async function deleteConversation(conversationId: string): Promise<void> {
-  if (useMock) return deleteConversationMock(conversationId)
-  try {
-    return await deleteConversationReal(conversationId)
-  } catch {
-    useMock = true
-    return deleteConversationMock(conversationId)
-  }
+  if (!res.ok) throw new Error(`Failed to delete chat: ${res.status}`)
 }

@@ -16,9 +16,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-# Override at runtime: docker run -e PORT=4000 -e API_BASE=http://backend:8080/api ...
+# Override at runtime: docker run -e SERVER_API_URL=http://backend:8080 ...
 ENV PORT=3000
-ENV API_BASE=/api
+ENV SERVER_API_URL=http://localhost:8081
 
 # Copy built app and package files
 COPY --from=builder /app/build ./build
