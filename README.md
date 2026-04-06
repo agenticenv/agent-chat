@@ -1,6 +1,21 @@
 # Agent Chat
 
-Sample chat app built with [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go): React UI, Go REST API, and durable workflow-backed conversations.
+A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go REST API.backed conversations.
+
+## Why agent-sdk-go
+
+Most agent frameworks run in-process — if your server restarts, the agent run is lost. [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) is Temporal-first, so every agent run is a durable workflow:
+
+- **Durable conversations** — chat history and agent runs survive server restarts
+- **Long-running agents** — conversations can run for extended periods without losing state
+- **Automatic retries** — failed LLM calls retry automatically via Temporal
+
+## Stack
+
+- **[agent-sdk-go](https://github.com/agenticenv/agent-sdk-go)** — AI agent SDK for Go
+- **React Router 7 + Vite** — UI
+- **Tailwind CSS v4** — Styling
+- **react-markdown** + **remark-gfm** — Message bubbles render Markdown (GFM)
 
 ## Prerequisites
 
@@ -63,10 +78,3 @@ docker compose down
 
 - **[ui/README.md](ui/README.md)** — `SERVER_API_URL`, Docker image, rebuilding the UI with Docker Compose.
 - **[server/README.md](server/README.md)** — environment variables, architecture, REST API, rebuild the API with Docker Compose.
-
-## Stack
-
-- **[agent-sdk-go](https://github.com/agenticenv/agent-sdk-go)** — AI agent SDK for Go
-- **React Router 7 + Vite** — UI
-- **Tailwind CSS v4** — Styling
-- **react-markdown** + **remark-gfm** — Message bubbles render Markdown (GFM)
