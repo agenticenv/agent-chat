@@ -78,5 +78,5 @@ docker compose down
 
 ## References
 
-- **[ui/README.md](ui/README.md)** — `SERVER_API_URL`, Docker image, rebuilding the UI with Docker Compose.
-- **[server/README.md](server/README.md)** — environment variables, architecture, REST API, rebuild the API with Docker Compose.
+- **[UI](ui/README.md)** — `SERVER_API_URL`, Docker image, rebuilding the UI with Docker Compose.
+- **[server](server/README.md)** — environment variables, architecture, REST API, rebuild the API with Docker Compose.
