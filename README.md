@@ -2,6 +2,8 @@
 
 A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go REST API.backed conversations.
 
+> This is a demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go). Not intended for production use.
+
 ## Why agent-sdk-go
 
 Most agent frameworks run in-process — if your server restarts, the agent run is lost. [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) is Temporal-first, so every agent run is a durable workflow:
