@@ -1,15 +1,25 @@
 # Dependencies
 node_modules/
 
-# Build outputs
+# Build outputs (UI: react-router build/, any dist/)
 build/
 dist/
 *.local
 
-# React Router
+# React Router (generated types; under ui/ as well)
 .react-router/
 
-# Environment
+# Go — binaries, test cache, optional vendor
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Environment (keep **/.env.example tracked)
 .env
 .env.*
 !.env.example
@@ -17,14 +27,23 @@ dist/
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # OS
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE / editors
 .idea/
 .vscode/
 *.swp
 *.swo
-server/llm/
+*~
+
+# Tooling caches
+.eslintcache
+*.tsbuildinfo
+coverage/
+.nyc_output/

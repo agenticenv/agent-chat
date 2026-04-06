@@ -1,69 +1,74 @@
-# agent-demo
+# Agent Chat
 
-Agent demo — a sample app built with [agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go) (Powered by [Temporal](https://temporal.io)). It includes a chat-style React UI and a Go server with REST APIs, aimed at single-agent chat today and **multi-agent** selection, routing, and orchestration demos as the project grows.
+Sample chat app built with [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go): React UI, Go REST API, and durable workflow-backed conversations.
 
-## Overview
+## Prerequisites
 
-**agent-demo** uses [agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go) (Powered by [Temporal](https://temporal.io)) for durable, workflow-orchestrated conversations. Today it provides a general chat experience; the same codebase is meant to extend with agent selection and multi-agent orchestration examples.
+- **Docker** — [Docker Engine](https://docs.docker.com/engine/) with **Docker Compose** (the `docker compose` CLI; Compose v2 is bundled with Docker Desktop and current Engine installs).
+- **LLM access** — An API key from a supported provider (for example OpenAI or an OpenAI-compatible HTTP API). Add it to **`server/.env`** in the **Configuration** section below.
+- **This repository** — Clone or copy the Agent Chat project so you have the **`docker-compose.yml`** at the repo root.
 
-## Built with
+Local UI development (`npm run dev`) needs **Node.js** — see **[ui/README.md](ui/README.md)** if you run the UI outside Docker.
 
-- **[agent-sdk-go](https://github.com/vvsynapse/agent-sdk-go)** — AI agent SDK for Go (Powered by [Temporal](https://temporal.io))
-- **React Router 7 + Vite** — Single-page app UI
-- **Tailwind CSS v4** — Styling
+## How to start
 
-## Setup
+Agent Chat runs with **Docker Compose**. Run every command below from the **repository root** — the directory that contains **`docker-compose.yml`**.
 
-### UI (local dev & Docker)
+### Configuration (Required)
 
-See **[ui/README.md](ui/README.md)** for `npm run dev`, Vite proxy / `API_PROXY_TARGET`, and building or running the UI Docker image (`API_BASE`, `PORT`).
+Agent Chat reads **`server/.env`** for LLM settings. If **`LLM_API_KEY`** is missing, **the Agent Chat API will not start** and containers may fail or restart.
 
-### Server
+- **Copy** the example file:
 
-See **[server/README.md](server/README.md)** for environment variables, API endpoints, architecture details, and running the server with Docker.
+  ```bash
+  cp server/.env.example server/.env
+  ```
 
-```bash
-docker compose up -d temporal postgres
-docker compose up -d server
-```
+- **Required**
 
-### API contract
+  | Variable | You must… |
+  |----------|-----------|
+  | **`LLM_API_KEY`** | Set to your real LLM API key. An empty placeholder means Agent Chat cannot start. |
 
-The UI expects these REST endpoints:
+- **Optional — LLM** (defaults are fine for OpenAI)
 
-| Endpoint | Method | Request | Response |
-|----------|--------|---------|----------|
-| `/api/conversations` | GET | - | `Conversation[]` or `{ conversations: [...] }` |
-| `/api/conversations` | POST | `{ title?: string }` | `{ id, title }` or `{ conversation: {...} }` |
-| `/api/conversations/:id/messages` | GET | - | `Message[]` or `{ messages: [...] }` |
-| `/api/conversations/:id/messages` | POST | `{ content: string }` | `Message` or `{ message: {...} }` |
+  - **`LLM_PROVIDER`** — default `openai`
+  - **`LLM_MODEL`** — default `gpt-4o`
+  - **`LLM_BASE_URL`** — set only for a **custom or Azure-style** HTTP endpoint; use a **`LLM_MODEL`** your provider supports
 
-## Running with Docker
+- **Optional — agent**
 
-```bash
-docker compose up -d
+  - **`AGENT_SYSTEM_PROMPT`** — how Agent Chat behaves (role, tone, rules). Omit to use the built-in default.
+  - **`AGENT_NAME`**, **`AGENT_DESCRIPTION`**, **`AGENT_CONVERSATION_WINDOW_SIZE`** — labeling and how much chat history is in context; see **`server/.env.example`**.
 
-# View logs
-docker compose logs -f
-```
+Full variable list and behavior: **[server/README.md](server/README.md)**.
 
-### Start individual services
+### Start (Docker Compose)
 
-```bash
-# Server only (requires Temporal to be running)
-docker compose up -d temporal
-docker compose up -d server
+- **Start the stack** (Postgres, Temporal, API, UI):
 
-# UI only
-docker compose up -d ui
-```
+  ```bash
+  docker compose up -d --build
+  ```
 
-### Stop services
+- **Open Agent Chat:** **[http://localhost:3000](http://localhost:3000)** — use the chat in your browser.
+
+- **(Optional)** **Temporal UI:** **[http://localhost:8233](http://localhost:8233)** — view Temporal workflow executions for Agent Chat.
+
+### Stop (Docker Compose)
 
 ```bash
 docker compose down
 ```
 
-### Building the UI image
+## References
 
-See **[ui/README.md](ui/README.md#docker)** (build and runtime env vars).
+- **[ui/README.md](ui/README.md)** — local UI dev (`npm run dev`), `SERVER_API_URL`, Docker image, rebuild the UI with Docker Compose.
+- **[server/README.md](server/README.md)** — environment variables, architecture, REST API, rebuild the API with Docker Compose.
+
+## Stack
+
+- **[agent-sdk-go](https://github.com/agenticenv/agent-sdk-go)** — AI agent SDK for Go
+- **React Router 7 + Vite** — UI
+- **Tailwind CSS v4** — Styling
+- **react-markdown** + **remark-gfm** — Message bubbles render Markdown (GFM)

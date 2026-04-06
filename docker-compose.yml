@@ -1,14 +1,23 @@
+# Postgres auth is shared between the postgres service and server (see x-postgres-auth).
+# Server listens on :8080 in the container; published to host :8081 (avoid clashing with a local :8080).
+# After server/Dockerfile changes: make up   or   docker compose up -d --build
+
+x-postgres-auth: &postgres-auth
+  POSTGRES_USER: temporal
+  POSTGRES_PASSWORD: temporal
+
 services:
   temporal:
     image: temporalio/auto-setup:latest
     ports:
-      - "7233:7233"
+      - 7233:7233
     environment:
-      - DB=postgres12
-      - DB_PORT=5432
-      - POSTGRES_USER=temporal
-      - POSTGRES_PWD=temporal
-      - POSTGRES_SEEDS=postgres
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporaldb
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
     healthcheck:
       test: ["CMD-SHELL", "temporal workflow list --address $(hostname):7233"]
       interval: 10s
@@ -22,8 +31,7 @@ services:
   postgres:
     image: postgres:13-alpine
     environment:
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
+      <<: *postgres-auth
     ports:
       - "5432:5432"
     healthcheck:
@@ -33,18 +41,25 @@ services:
       retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./server/db/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
 
   server:
     build:
       context: .
       dockerfile: server/Dockerfile
-      additional_contexts:
-        sdk: ../temporal-agent-sdk-go
     ports:
-      - "8080:8080"
+      - "8081:8080"
+    environment:
+      <<: *postgres-auth
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: agentdb
+      TEMPORAL_HOST: temporal
+      TEMPORAL_PORT: "7233"
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: agent-chat
     env_file:
-      - ./server/.env
+      - ./server/.env # loads LLM, agent settings
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,7 +83,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      API_BASE: ${API_BASE:-http://localhost:8080/api}
+      # Backend origin (no /api): Vite dev proxy target; Docker entrypoint writes config.json for the browser.
+      SERVER_API_URL: ${SERVER_API_URL:-http://localhost:8081}
     depends_on:
       - server
 

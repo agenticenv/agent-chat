@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/agenticenv/agent-chat/server/store"
 	"github.com/go-chi/chi/v5"
-	"github.com/vvsynapse/agent-demo/server/store"
 )
 
 // ConversationHandler handles CRUD for conversations.
@@ -33,7 +34,7 @@ func (h *ConversationHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Title == "" {
-		body.Title = "New conversation"
+		body.Title = "New chat"
 	}
 	conv, err := h.store.Create(r.Context(), body.Title)
 	if err != nil {

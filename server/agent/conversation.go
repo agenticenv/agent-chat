@@ -1,11 +1,12 @@
 // Package agent provides the bridge between our PostgreSQL store and the
-// temporal-agent-sdk-go interfaces.Conversation contract.
+// agent-sdk-go interfaces.Conversation contract.
 package agent
 
 import (
 	"context"
-	"github.com/vvsynapse/agent-sdk-go/pkg/interfaces"
-	"github.com/vvsynapse/agent-demo/server/store"
+
+	"github.com/agenticenv/agent-chat/server/store"
+	"github.com/agenticenv/agent-sdk-go/pkg/interfaces"
 )
 
 // PGConversation implements interfaces.Conversation backed by PostgreSQL.
@@ -107,4 +108,3 @@ func containsRole(roles []interfaces.MessageRole, role interfaces.MessageRole) b
 	}
 	return false
 }
-

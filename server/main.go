@@ -2,26 +2,30 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
+	"github.com/agenticenv/agent-sdk-go/pkg/interfaces"
+	"github.com/agenticenv/agent-sdk-go/pkg/llm"
+	"github.com/agenticenv/agent-sdk-go/pkg/llm/anthropic"
+	"github.com/agenticenv/agent-sdk-go/pkg/llm/gemini"
+	"github.com/agenticenv/agent-sdk-go/pkg/llm/openai"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	sdkagent "github.com/vvsynapse/agent-sdk-go/pkg/agent"
-	"github.com/vvsynapse/agent-sdk-go/pkg/interfaces"
-	"github.com/vvsynapse/agent-sdk-go/pkg/llm"
-	"github.com/vvsynapse/agent-sdk-go/pkg/llm/openai"
 
-	agentconv "github.com/vvsynapse/agent-demo/server/agent"
-	demollm "github.com/vvsynapse/agent-demo/server/llm"
-	"github.com/vvsynapse/agent-demo/server/config"
-	"github.com/vvsynapse/agent-demo/server/db"
-	"github.com/vvsynapse/agent-demo/server/handlers"
-	"github.com/vvsynapse/agent-demo/server/store"
+	agentconv "github.com/agenticenv/agent-chat/server/agent"
+	"github.com/agenticenv/agent-chat/server/config"
+	"github.com/agenticenv/agent-chat/server/db"
+	"github.com/agenticenv/agent-chat/server/handlers"
+	"github.com/agenticenv/agent-chat/server/store"
 )
 
 func main() {
@@ -32,9 +36,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	initSlog(cfg.LogLevel)
+	slog.Info("starting agent-chat server", "log_level", cfg.LogLevel, "agent", cfg.Agent.Name)
 
 	// ── Database ──────────────────────────────────────────────────────────────
-	pool, err := db.Connect(ctx, cfg.DatabaseURL)
+	pool, err := db.Connect(ctx, cfg.DB.URL)
 	if err != nil {
 		log.Fatalf("db connect: %v", err)
 	}
@@ -43,7 +49,7 @@ func main() {
 	if err := db.Migrate(ctx, pool); err != nil {
 		log.Fatalf("db migrate: %v", err)
 	}
-	log.Println("database ready")
+	slog.Info("database ready")
 
 	// ── Stores ────────────────────────────────────────────────────────────────
 	convStore := store.NewConversationStore(pool)
@@ -51,44 +57,34 @@ func main() {
 	pgConv := agentconv.NewPGConversation(msgStore)
 
 	// ── LLM client ───────────────────────────────────────────────────────────
-	// Use Azure client when LLM_API_VERSION is set (Azure requires api-version + api-key header).
-	// Otherwise use the SDK's standard OpenAI client.
-	var llmClient interfaces.LLMClient
-	if cfg.LLMAPIVersion != "" {
-		llmClient = demollm.NewAzureClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, cfg.LLMAPIVersion)
-		log.Printf("using Azure OpenAI client (api-version: %s)", cfg.LLMAPIVersion)
-	} else {
-		c, err := openai.NewClient(
-			llm.WithAPIKey(cfg.LLMAPIKey),
-			llm.WithModel(cfg.LLMModel),
-			llm.WithBaseURL(cfg.LLMBaseURL),
-		)
-		if err != nil {
-			log.Fatalf("llm client: %v", err)
-		}
-		llmClient = c
+	llmClient, err := getLLMClient(cfg)
+	if err != nil {
+		log.Fatalf("llm client: %v", err)
 	}
 
 	// ── Agent (SDK) ──────────────────────────────────────────────────────────
 	// The SDK handles all Temporal internals: client, worker, workflows, activities.
 	a, err := sdkagent.NewAgent(
 		sdkagent.WithTemporalConfig(&sdkagent.TemporalConfig{
-			Host:      cfg.AgentSDKHost,
-			Port:      cfg.AgentSDKPort,
-			Namespace: cfg.AgentSDKNamespace,
-			TaskQueue: cfg.TaskQueue,
+			Host:      cfg.Temporal.Host,
+			Port:      cfg.Temporal.Port,
+			Namespace: cfg.Temporal.Namespace,
+			TaskQueue: cfg.Temporal.TaskQueue,
 		}),
-		sdkagent.WithSystemPrompt(cfg.SystemPrompt),
+		sdkagent.WithName(cfg.Agent.Name),
+		sdkagent.WithDescription(cfg.Agent.Description),
+		sdkagent.WithSystemPrompt(cfg.Agent.SystemPrompt),
+		sdkagent.WithLogLevel(cfg.LogLevel),
 		sdkagent.WithLLMClient(llmClient),
 		sdkagent.WithConversation(pgConv),
-		sdkagent.WithConversationSize(cfg.ConvWindowSize),
+		sdkagent.WithConversationSize(cfg.Agent.ConvWindowSize),
 		sdkagent.WithToolApprovalPolicy(sdkagent.AutoToolApprovalPolicy()),
 	)
 	if err != nil {
 		log.Fatalf("agent: %v", err)
 	}
 	defer a.Close()
-	log.Println("agent ready")
+	slog.Info("agent ready", "agent", cfg.Agent.Name)
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	convH := handlers.NewConversationHandler(convStore)
@@ -111,7 +107,7 @@ func main() {
 
 	// ── HTTP server with graceful shutdown ────────────────────────────────────
 	srv := &http.Server{
-		Addr:    ":" + cfg.Port,
+		Addr:    ":" + config.HTTPListenPort,
 		Handler: r,
 		// WriteTimeout must cover the full Temporal + LLM round trip.
 		ReadTimeout:  10 * time.Second,
@@ -122,19 +118,63 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("server listening on :%s", cfg.Port)
+		slog.Info("http server listening", "addr", ":"+config.HTTPListenPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server: %v", err)
 		}
 	}()
 
 	<-quit
-	log.Println("shutting down...")
+	slog.Info("shutting down")
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutCtx); err != nil {
-		log.Printf("shutdown error: %v", err)
+		slog.Error("shutdown error", "err", err)
+	}
+}
+
+func initSlog(level string) {
+	lvl := parseLogLevel(level)
+	h := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})
+	slog.SetDefault(slog.New(h))
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+func getLLMClient(cfg *config.Config) (interfaces.LLMClient, error) {
+	switch cfg.LLM.Provider {
+	case "openai":
+		return openai.NewClient(
+			llm.WithAPIKey(cfg.LLM.APIKey),
+			llm.WithModel(cfg.LLM.Model),
+			llm.WithBaseURL(cfg.LLM.BaseURL),
+		)
+	case "anthropic":
+		return anthropic.NewClient(
+			llm.WithAPIKey(cfg.LLM.APIKey),
+			llm.WithModel(cfg.LLM.Model),
+		)
+	case "gemini":
+		return gemini.NewClient(
+			llm.WithAPIKey(cfg.LLM.APIKey),
+			llm.WithModel(cfg.LLM.Model),
+		)
+	default:
+		return nil, errors.New("invalid LLM provider")
 	}
 }
 
