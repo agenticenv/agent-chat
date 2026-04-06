@@ -1,6 +1,6 @@
 # Agent Chat
 
-A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go REST API.backed conversations.
+A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go REST API, with durable workflow-backed conversations.
 
 > This is a demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go). Not intended for production use.
 
@@ -23,11 +23,24 @@ Most agent frameworks run in-process — if your server restarts, the agent run 
 
 - **Docker** — [Docker Engine](https://docs.docker.com/engine/) with **Docker Compose** (the `docker compose` CLI; Compose v2 is bundled with Docker Desktop and current Engine installs).
 - **LLM access** — An API key from a supported provider (for example OpenAI or an OpenAI-compatible HTTP API). Add it to **`server/.env`** in the **Configuration** section below.
-- **This repository** — Clone or copy the Agent Chat project so you have the **`docker-compose.yml`** at the repo root.
+- **A local copy of this project** — You need the files on your computer before you can run anything (clone with Git or download a ZIP — **Get the code** below).
 
 ## How to start
 
-Agent Chat runs with **Docker Compose**. Run every command below from the **repository root** — the directory that contains **`docker-compose.yml`**.
+Follow these steps in order. Every shell command assumes your **current directory** is the **repository root**: the folder that contains **`docker-compose.yml`**.
+
+### Get the code
+
+- **Clone with Git** (recommended):
+
+  ```bash
+  git clone https://github.com/agenticenv/agent-chat.git
+  cd agent-chat
+  ```
+
+  Use your fork’s URL if you forked the repo. After `cd`, you should see `docker-compose.yml` in that directory.
+
+- **Or download a ZIP** — On GitHub, open **Code** → **Download ZIP**, unzip it, then open a terminal and `cd` into the unzipped folder (the one that contains **`docker-compose.yml`**).
 
 ### Configuration (Required)
 
@@ -59,6 +72,8 @@ Agent Chat reads **`server/.env`** for LLM settings. If **`LLM_API_KEY`** is mis
 Full variable list and behavior: **[server/README.md](server/README.md)**.
 
 ### Start (Docker Compose)
+
+Agent Chat runs with **Docker Compose** from the repository root.
 
 - **Start the stack** (Postgres, Temporal, API, UI):
 
