@@ -8,8 +8,6 @@ Sample chat app built with [agent-sdk-go](https://github.com/agenticenv/agent-sd
 - **LLM access** — An API key from a supported provider (for example OpenAI or an OpenAI-compatible HTTP API). Add it to **`server/.env`** in the **Configuration** section below.
 - **This repository** — Clone or copy the Agent Chat project so you have the **`docker-compose.yml`** at the repo root.
 
-Local UI development (`npm run dev`) needs **Node.js** — see **[ui/README.md](ui/README.md)** if you run the UI outside Docker.
-
 ## How to start
 
 Agent Chat runs with **Docker Compose**. Run every command below from the **repository root** — the directory that contains **`docker-compose.yml`**.
@@ -63,7 +61,7 @@ docker compose down
 
 ## References
 
-- **[ui/README.md](ui/README.md)** — local UI dev (`npm run dev`), `SERVER_API_URL`, Docker image, rebuild the UI with Docker Compose.
+- **[ui/README.md](ui/README.md)** — `SERVER_API_URL`, Docker image, rebuilding the UI with Docker Compose.
 - **[server/README.md](server/README.md)** — environment variables, architecture, REST API, rebuild the API with Docker Compose.
 
 ## Stack
