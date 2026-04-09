@@ -5,7 +5,7 @@ go 1.24.4
 replace github.com/agenticenv/agent-chat/server => ./
 
 require (
-	github.com/agenticenv/agent-sdk-go v0.1.0
+	github.com/agenticenv/agent-sdk-go v0.1.1
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/joho/godotenv v1.5.1
