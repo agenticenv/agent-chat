@@ -4,17 +4,13 @@ import (
 	"context"
 	"log/slog"
 	"time"
-
 	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
-
 	"github.com/agenticenv/agent-chat/server/store"
 )
 
-// Runner launches and manages bridge goroutines that translate SDK AgentEvents
-// into wire Events and publish them to the Broker. Each bridge goroutine runs
-// on a context derived from parentCtx (the server-level context), NOT from any
-// HTTP request context. This ensures that a client disconnect does not cancel
-// the underlying Temporal agent workflow.
+// Runner launches and manages bridge goroutines that translate SDK AgentEvents into wire Events and publish them to the Broker. 
+// Each bridge goroutine runs on a context derived from parentCtx (the server-level context), NOT from any HTTP request context. 
+// This ensures that a client disconnect does not cancel the underlying Temporal agent workflow.
 type Runner struct {
 	agent     *sdkagent.Agent
 	broker    *Broker
@@ -59,6 +55,10 @@ func (r *Runner) Start(convID, content string) error {
 func (r *Runner) run(ctx context.Context, convID, content string) {
 	// Always close the topic when we exit so all subscribers see channel close.
 	defer r.broker.Close(convID)
+
+	// Record the time before calling Stream so buildDoneEvent can distinguish the new assistant message from pre-existing ones in the DB. This is
+	// necessary because AgentEventComplete fires before Temporal's AddConversationMessagesActivity finishes writing the message to Postgres.
+	runStartTime := time.Now()
 
 	eventCh, err := r.agent.Stream(ctx, content, convID)
 	if err != nil {
@@ -133,7 +133,7 @@ func (r *Runner) run(ctx context.Context, convID, content string) {
 				continue
 			}
 
-			done := r.buildDoneEvent(ctx, convID, ev.Timestamp)
+			done := r.buildDoneEvent(ctx, convID, ev.Timestamp, runStartTime)
 			r.broker.Publish(convID, done)
 			return // defer closes topic
 
@@ -148,28 +148,44 @@ func (r *Runner) run(ctx context.Context, convID, content string) {
 
 	// Channel closed without an explicit Complete (e.g. context canceled by
 	// CloseAll on shutdown). Publish a best-effort done with whatever is in DB.
-	done := r.buildDoneEvent(ctx, convID, time.Now())
+	done := r.buildDoneEvent(ctx, convID, time.Now(), runStartTime)
 	r.broker.Publish(convID, done)
 }
 
-// buildDoneEvent fetches the last assistant message from the DB and returns an
-// EventDone. The DB read uses the passed context; on failure Message is nil
-// and the client falls back to fetching /messages on next load.
-func (r *Runner) buildDoneEvent(ctx context.Context, convID string, ts time.Time) Event {
-	ev := Event{Type: EventDone, Timestamp: ts}
+// buildDoneEvent waits for the assistant reply to appear in the DB and returns an EventDone carrying it.
 
-	msgs, err := r.messages.List(ctx, convID)
-	if err != nil {
-		slog.Warn("stream: failed to fetch last message for done event", "conv", convID, "err", err)
-		return ev
-	}
-	// Walk from the end to find the last assistant message.
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "assistant" {
-			m := msgs[i]
-			ev.Message = &m
-			break
+// AgentEventComplete fires from the Temporal workflow before AddConversationMessagesActivity finishes writing the new message to Postgres.
+// To bridge this race, we retry the DB read (up to 10 × 150 ms = 1.5 s) until we find an assistant message whose CreatedAt is after runStartTime. 
+// A 2-second buffer is subtracted from runStartTime to absorb any clock skew between the
+// Go server and Postgres.
+
+// If the message never appears (e.g. the run was cancelled), Message is nil and
+// the client falls back to fetching /messages on next load.
+
+func (r *Runner) buildDoneEvent(ctx context.Context, convID string, ts time.Time, runStartTime time.Time) Event {
+	ev := Event{Type: EventDone, Timestamp: ts}
+	lookAfter := runStartTime.Add(-2 * time.Second)
+
+	for i := 0; i < 10; i++ {
+		msgs, err := r.messages.List(ctx, convID)
+		if err == nil {
+			for j := len(msgs) - 1; j >= 0; j-- {
+				if msgs[j].Role == "assistant" && msgs[j].CreatedAt.After(lookAfter) {
+					m := msgs[j]
+					ev.Message = &m
+					return ev
+				}
+			}
+		}
+		if i < 9 {
+			select {
+			case <-ctx.Done():
+				return ev
+			case <-time.After(150 * time.Millisecond):
+			}
 		}
 	}
+
+	slog.Warn("stream: new assistant message not found in DB after retries", "conv", convID)
 	return ev
 }
