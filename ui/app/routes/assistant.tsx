@@ -4,7 +4,7 @@ import {
   getConversations,
   createConversation,
   getMessages,
-  sendMessage,
+  streamMessage,
   renameConversation,
   deleteConversation,
   type Conversation,
@@ -199,6 +199,12 @@ export default function AssistantPage() {
   const sendInFlightRef = useRef(false)
   /** Shared ref so focus stays in the composer after send (center or bottom layout). */
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  /** Ref on the message scroll container for auto-scroll as tokens stream in. */
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  /** Whether to stick the scroll to the bottom as messages update. Starts true;
+   *  flips to false only when the user manually scrolls up; resets to true on
+   *  send or chat switch. */
+  const stickToBottomRef = useRef(true)
   const prevShowCenterPromptRef = useRef<boolean | undefined>(undefined)
   const prevAwaitingReplyRef = useRef(false)
   /** Apply `?chat=` from the URL once after the conversation list has loaded. */
@@ -374,8 +380,10 @@ export default function AssistantPage() {
         content: text,
         createdAt: new Date().toISOString(),
       }
+      const streamingId = `streaming-${Date.now()}`
       setInput("")
-      setMessages([userMsg])
+      stickToBottomRef.current = true
+      setMessages([userMsg, { id: streamingId, role: "assistant", content: "", createdAt: new Date().toISOString() }])
       setAwaitingAssistantReply(true)
       try {
         const conv = await createConversation(titleFromFirstMessage(text))
@@ -383,8 +391,28 @@ export default function AssistantPage() {
         pendingFirstMessageForChatIdRef.current = conv.id
         setSelectedId(conv.id)
         syncChatUrl(setSearchParams, conv.id)
-        const msg = await sendMessage(conv.id, text)
-        setMessages([userMsg, msg])
+        await streamMessage(conv.id, text, (ev) => {
+          if (ev.type === "token") {
+            setMessages((prev: Message[]) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last && last.id === streamingId) {
+                next[next.length - 1] = { ...last, content: last.content + ev.content }
+              }
+              return next
+            })
+          } else if (ev.type === "done") {
+            if (ev.message) {
+              setMessages((prev: Message[]) =>
+                prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
+              )
+            }
+            // If no DB message yet, the accumulated token content is already correct.
+          } else if (ev.type === "error") {
+            setError(ev.content || "Agent error")
+            setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
+          }
+        })
       } catch (e) {
         setMessages([])
         setHasLeftLanding(false)
@@ -403,12 +431,38 @@ export default function AssistantPage() {
       content: text,
       createdAt: new Date().toISOString(),
     }
-    setMessages((prev) => [...prev, userMsg])
+    const streamingId = `streaming-${Date.now()}`
+    stickToBottomRef.current = true
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      { id: streamingId, role: "assistant" as const, content: "", createdAt: new Date().toISOString() },
+    ])
     setInput("")
     setAwaitingAssistantReply(true)
     try {
-      const msg = await sendMessage(selectedId, text)
-      setMessages((prev) => [...prev, msg])
+      await streamMessage(selectedId, text, (ev) => {
+        if (ev.type === "token") {
+          setMessages((prev: Message[]) => {
+            const next = [...prev]
+            const last = next[next.length - 1]
+            if (last && last.id === streamingId) {
+              next[next.length - 1] = { ...last, content: last.content + ev.content }
+            }
+            return next
+          })
+        } else if (ev.type === "done") {
+          if (ev.message) {
+            setMessages((prev: Message[]) =>
+              prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
+            )
+          }
+          // If no DB message yet, the accumulated token content is already correct.
+        } else if (ev.type === "error") {
+          setError(ev.content || "Agent error")
+          setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
+        }
+      })
       const chat = chats.find((c) => c.id === selectedId)
       if (isDefaultChatTitle(chat?.title)) {
         const newTitle = titleFromFirstMessage(text)
@@ -419,6 +473,7 @@ export default function AssistantPage() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send message")
+      setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
     } finally {
       setAwaitingAssistantReply(false)
       sendInFlightRef.current = false
@@ -468,6 +523,32 @@ export default function AssistantPage() {
     }
     prevAwaitingReplyRef.current = awaitingAssistantReply
   }, [awaitingAssistantReply])
+
+  /** Auto-scroll to bottom as messages update or tokens stream in. Only
+   *  suppressed when the user has manually scrolled up during the current chat
+   *  (see handleMessagesScroll). useLayoutEffect runs before paint to avoid
+   *  flashing a stale scroll position. */
+  useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [messages, loadingMessages])
+
+  /** Reset sticky-bottom when switching chats so the new conversation opens
+   *  at the latest message regardless of the previous chat's scroll state. */
+  useLayoutEffect(() => {
+    stickToBottomRef.current = true
+  }, [selectedId])
+
+  /** Scroll handler: flip sticky-bottom off when the user manually scrolls up;
+   *  flip it back on when they return to within 80px of the bottom. */
+  const handleMessagesScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 80
+  }, [])
 
   return (
     <div className="flex h-screen bg-background">
@@ -578,7 +659,11 @@ export default function AssistantPage() {
           </div>
         ) : (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleMessagesScroll}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
               <div className="mx-auto max-w-3xl px-4 py-8">
                 {loadingMessages ? (
                   <div className="flex flex-col items-center gap-4 py-12">
@@ -610,7 +695,7 @@ export default function AssistantPage() {
                         </div>
                       </div>
                     ))}
-                    {awaitingAssistantReply && <AssistantTypingBubble />}
+                    {awaitingAssistantReply && messages[messages.length - 1]?.content === "" && <AssistantTypingBubble />}
                   </div>
                 )}
               </div>
