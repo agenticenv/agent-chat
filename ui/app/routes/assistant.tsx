@@ -5,6 +5,7 @@ import {
   createConversation,
   getMessages,
   streamMessage,
+  sendMessage,
   renameConversation,
   deleteConversation,
   type Conversation,
@@ -169,6 +170,8 @@ function syncChatUrl(setSearchParams: ReturnType<typeof useSearchParams>[1], cha
 }
 
 export default function AssistantPage() {
+  const useStreaming = import.meta.env.VITE_STREAMING !== "false"
+
   const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -391,28 +394,34 @@ export default function AssistantPage() {
         pendingFirstMessageForChatIdRef.current = conv.id
         setSelectedId(conv.id)
         syncChatUrl(setSearchParams, conv.id)
-        await streamMessage(conv.id, text, (ev) => {
-          if (ev.type === "token") {
-            setMessages((prev: Message[]) => {
-              const next = [...prev]
-              const last = next[next.length - 1]
-              if (last && last.id === streamingId) {
-                next[next.length - 1] = { ...last, content: last.content + ev.content }
+        if (useStreaming) {
+          await streamMessage(conv.id, text, (ev) => {
+            if (ev.type === "token") {
+              setMessages((prev: Message[]) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last && last.id === streamingId) {
+                  next[next.length - 1] = { ...last, content: last.content + ev.content }
+                }
+                return next
+              })
+            } else if (ev.type === "done") {
+              if (ev.message) {
+                setMessages((prev: Message[]) =>
+                  prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
+                )
               }
-              return next
-            })
-          } else if (ev.type === "done") {
-            if (ev.message) {
-              setMessages((prev: Message[]) =>
-                prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
-              )
+            } else if (ev.type === "error") {
+              setError(ev.content || "Agent error")
+              setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
             }
-            // If no DB message yet, the accumulated token content is already correct.
-          } else if (ev.type === "error") {
-            setError(ev.content || "Agent error")
-            setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
-          }
-        })
+          })
+        } else {
+          const reply = await sendMessage(conv.id, text)
+          setMessages((prev: Message[]) =>
+            prev.map((m: Message) => (m.id === streamingId ? reply : m))
+          )
+        }
       } catch (e) {
         setMessages([])
         setHasLeftLanding(false)
@@ -441,28 +450,34 @@ export default function AssistantPage() {
     setInput("")
     setAwaitingAssistantReply(true)
     try {
-      await streamMessage(selectedId, text, (ev) => {
-        if (ev.type === "token") {
-          setMessages((prev: Message[]) => {
-            const next = [...prev]
-            const last = next[next.length - 1]
-            if (last && last.id === streamingId) {
-              next[next.length - 1] = { ...last, content: last.content + ev.content }
+      if (useStreaming) {
+        await streamMessage(selectedId, text, (ev) => {
+          if (ev.type === "token") {
+            setMessages((prev: Message[]) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last && last.id === streamingId) {
+                next[next.length - 1] = { ...last, content: last.content + ev.content }
+              }
+              return next
+            })
+          } else if (ev.type === "done") {
+            if (ev.message) {
+              setMessages((prev: Message[]) =>
+                prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
+              )
             }
-            return next
-          })
-        } else if (ev.type === "done") {
-          if (ev.message) {
-            setMessages((prev: Message[]) =>
-              prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
-            )
+          } else if (ev.type === "error") {
+            setError(ev.content || "Agent error")
+            setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
           }
-          // If no DB message yet, the accumulated token content is already correct.
-        } else if (ev.type === "error") {
-          setError(ev.content || "Agent error")
-          setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
-        }
-      })
+        })
+      } else {
+        const reply = await sendMessage(selectedId, text)
+        setMessages((prev: Message[]) =>
+          prev.map((m: Message) => (m.id === streamingId ? reply : m))
+        )
+      }
       const chat = chats.find((c) => c.id === selectedId)
       if (isDefaultChatTitle(chat?.title)) {
         const newTitle = titleFromFirstMessage(text)
