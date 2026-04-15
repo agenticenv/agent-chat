@@ -1,6 +1,6 @@
 # Agent Chat
 
-A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go REST API, with durable workflow-backed conversations.
+A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go API, with durable workflow-backed conversations and real-time streaming via SSE.
 
 > This is a demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go). Not intended for production use.
 
@@ -70,6 +70,20 @@ Agent Chat reads **`server/.env`** for LLM settings. If **`LLM_API_KEY`** is mis
   - **`AGENT_NAME`**, **`AGENT_DESCRIPTION`**, **`AGENT_CONVERSATION_WINDOW_SIZE`** — labeling and how much chat history is in context; see **`server/.env.example`**.
 
 Full variable list and behavior: **[server/README.md](server/README.md)**.
+
+- **Copy** the UI example file (optional — only needed to change defaults):
+
+  ```bash
+  cp ui/.env.example ui/.env
+  ```
+
+- **Optional — UI**
+
+  | Variable | Default | Description |
+  |----------|---------|-------------|
+  | **`VITE_STREAMING`** | `true` | `true` = SSE streaming (tokens appear as they're generated); `false` = REST (full response appears at once). See **[ui/README.md](ui/README.md)**. |
+
+Full variable list and behavior: **[ui/README.md](ui/README.md)**.
 
 ### Start (Docker Compose)
 
