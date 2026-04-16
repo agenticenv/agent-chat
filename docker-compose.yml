@@ -80,6 +80,9 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
+      args:
+        # true = SSE streaming (default), false = REST mode
+        ENABLE_STREAM: ${ENABLE_STREAM:-true}
     ports:
       - "3000:3000"
     environment:

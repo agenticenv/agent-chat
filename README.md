@@ -81,7 +81,7 @@ Full variable list and behavior: **[server/README.md](server/README.md)**.
 
   | Variable | Default | Description |
   |----------|---------|-------------|
-  | **`VITE_STREAMING`** | `true` | `true` = SSE streaming (tokens appear as they're generated); `false` = REST (full response appears at once). See **[ui/README.md](ui/README.md)**. |
+  | **`ENABLE_STREAM`** | `true` | `true` = SSE streaming (tokens appear as they're generated); `false` = REST (full response appears at once). See **[ui/README.md](ui/README.md)**. |
 
 Full variable list and behavior: **[ui/README.md](ui/README.md)**.
 

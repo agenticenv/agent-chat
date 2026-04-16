@@ -170,7 +170,7 @@ function syncChatUrl(setSearchParams: ReturnType<typeof useSearchParams>[1], cha
 }
 
 export default function AssistantPage() {
-  const useStreaming = import.meta.env.VITE_STREAMING !== "false"
+  const useStreaming = import.meta.env.VITE_ENABLE_STREAM !== "false"
 
   const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<Conversation[]>([])
