@@ -8,6 +8,10 @@ RUN npm ci
 
 COPY . .
 
+# Receive build arg from docker-compose and expose it to Vite (VITE_ prefix required)
+ARG ENABLE_STREAM=true
+ENV VITE_ENABLE_STREAM=$ENABLE_STREAM
+
 RUN npm run build
 
 # Run stage

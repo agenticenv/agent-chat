@@ -26,6 +26,7 @@ import (
 	"github.com/agenticenv/agent-chat/server/db"
 	"github.com/agenticenv/agent-chat/server/handlers"
 	"github.com/agenticenv/agent-chat/server/store"
+	"github.com/agenticenv/agent-chat/server/stream"
 )
 
 func main() {
@@ -79,6 +80,7 @@ func main() {
 		sdkagent.WithConversation(pgConv),
 		sdkagent.WithConversationSize(cfg.Agent.ConvWindowSize),
 		sdkagent.WithToolApprovalPolicy(sdkagent.AutoToolApprovalPolicy()),
+		sdkagent.WithStream(true),
 	)
 	if err != nil {
 		log.Fatalf("agent: %v", err)
@@ -86,9 +88,13 @@ func main() {
 	defer a.Close()
 	slog.Info("agent ready", "agent", cfg.Agent.Name)
 
+	// ── Stream broker + runner ────────────────────────────────────────────────
+	broker := stream.NewBroker()
+	runner := stream.NewRunner(a, broker, msgStore, cfg.Agent.Name, ctx)
+
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	convH := handlers.NewConversationHandler(convStore)
-	msgH := handlers.NewMessageHandler(msgStore, convStore, a)
+	msgH := handlers.NewMessageHandler(msgStore, convStore, a, runner, broker)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -103,6 +109,7 @@ func main() {
 		r.Delete("/conversations/{id}", convH.Delete)
 		r.Get("/conversations/{id}/messages", msgH.List)
 		r.Post("/conversations/{id}/messages", msgH.Send)
+		r.Post("/conversations/{id}/messages/stream", msgH.Stream)
 	})
 
 	// ── HTTP server with graceful shutdown ────────────────────────────────────
@@ -126,6 +133,9 @@ func main() {
 
 	<-quit
 	slog.Info("shutting down")
+
+	// Cancel all in-flight bridge goroutines before stopping the HTTP server.
+	broker.CloseAll()
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

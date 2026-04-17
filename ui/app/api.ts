@@ -112,3 +112,79 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   })
   if (!res.ok) throw new Error(`Failed to delete chat: ${res.status}`)
 }
+
+// ── Streaming ─────────────────────────────────────────────────────────────────
+
+export type StreamEvent =
+  | { type: "token"; content: string; timestamp: string }
+  | { type: "tool_call"; tool_name: string; tool_call_id?: string; timestamp: string }
+  | { type: "tool_result"; tool_name: string; result: unknown; timestamp: string }
+  | { type: "error"; content: string; timestamp: string }
+  | { type: "done"; message?: Message; timestamp: string }
+
+/**
+ * POST /api/conversations/{id}/messages/stream
+ *
+ * Sends the user message and calls onEvent for each SSE frame the server
+ * emits. Uses fetch() + ReadableStream (not EventSource) because we need to
+ * POST a request body.
+ *
+ * The server runs the agent in a background goroutine independent of this
+ * HTTP connection, so aborting via signal does NOT cancel the agent — it only
+ * stops receiving events. The final state is always retrievable via getMessages().
+ */
+export async function streamMessage(
+  conversationId: string,
+  content: string,
+  onEvent: (e: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const base = await getApiBase()
+  const res = await fetch(`${base}/conversations/${conversationId}/messages/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    throw new Error(`Stream failed: ${res.status}${text ? ` — ${text}` : ""}`)
+  }
+  if (!res.body) throw new Error("No response body from stream endpoint")
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ""
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      buf += decoder.decode(value, { stream: true })
+
+      // SSE frames are separated by a blank line (\n\n).
+      // A single read() may contain multiple frames or a partial frame.
+      let sep: number
+      while ((sep = buf.indexOf("\n\n")) !== -1) {
+        const frame = buf.slice(0, sep)
+        buf = buf.slice(sep + 2)
+
+        // Find the data line inside the frame (SSE allows multi-line frames
+        // with "data: " prefix; we only emit single-line data frames).
+        const dataLine = frame.split("\n").find((l) => l.startsWith("data: "))
+        if (!dataLine) continue
+
+        try {
+          const ev = JSON.parse(dataLine.slice(6)) as StreamEvent
+          onEvent(ev)
+        } catch {
+          // Skip malformed JSON — keep the stream going.
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}

@@ -5,6 +5,7 @@ React Router 7 + Vite + Tailwind CSS.
 - **Local dev (`npm run dev`)**: The browser uses same-origin `/api`; Vite proxies `/api` to **`SERVER_API_URL`**.
 - **Production (`react-router-serve` in Docker)**: The Node server does **not** proxy `/api`. **`entrypoint.sh`** writes `config.json` with `apiBase` = **`${SERVER_API_URL}/api`** so the browser calls the API directly (must be a URL **reachable from the browser**, e.g. `http://localhost:8081` when Compose maps the API to host port **8081**). The Go API enables CORS for that.
 - **Messages**: Chat content is rendered as **Markdown** (GitHub-flavored via `remark-gfm`): lists, code fences, tables, links, etc. Plain text is valid Markdown.
+- **Streaming**: By default the UI uses SSE streaming — tokens appear as the agent generates them. Set `ENABLE_STREAM=false` to switch to REST mode (full response appears at once).
 
 ## Run locally
 
@@ -20,7 +21,35 @@ Open [http://localhost:5173](http://localhost:5173). Start the Go API (or point 
 | Variable | Where | Description |
 |----------|-------|-------------|
 | `SERVER_API_URL` | `.env` (dev) / Docker | Backend **origin** only, no `/api` suffix — must be reachable from the **browser** (not a Docker-only hostname like `http://server:8080`). **Vite** uses it for the dev proxy (`/api` → `${SERVER_API_URL}/api`). **Docker** `entrypoint.sh` bakes the same value into `config.json` for client-side `fetch`. Compose defaults to **`http://localhost:8081`** (API published on host **8081** to avoid clashing with a local **8080**). |
+| `VITE_ENABLE_STREAM` | `ui/.env` (local dev) / `ENABLE_STREAM` build arg in `docker-compose.yml` (Docker) | `true` (default) = SSE streaming mode; `false` = REST mode. See **Streaming vs REST mode** below. |
 | `PORT` | Docker | HTTP port for `react-router-serve`. Default `3000`. |
+
+## Streaming vs REST mode
+
+The UI supports two response modes, controlled by `ENABLE_STREAM` in `ui/.env`:
+
+| Mode | Value | Behavior |
+|------|-------|----------|
+| **Streaming** (default) | `true` or unset | Uses `POST .../messages/stream` — tokens appear incrementally as the agent generates them via SSE |
+| **REST** | `false` | Uses `POST .../messages` — waits for the agent to finish, then displays the full response at once |
+
+Both modes show a typing indicator while waiting. The backend supports both endpoints — no server changes needed.
+
+**To switch modes (local dev):**
+1. Set `ENABLE_STREAM=false` (or `true`) in `ui/.env`
+2. Restart `npm run dev` — Vite bakes this value in at startup
+
+**To switch modes (Docker):**
+
+`ENABLE_STREAM` is baked in at image build time via a Docker build arg. Set it in `docker-compose.yml` (or as an env var on your host) and rebuild:
+
+```bash
+# Pass it inline
+ENABLE_STREAM=false docker compose up -d --build ui
+
+# Or set ENABLE_STREAM=false in docker-compose.yml args section, then:
+docker compose up -d --build ui
+```
 
 ### Local dev — backend on a different host/port
 

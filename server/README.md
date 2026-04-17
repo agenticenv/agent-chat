@@ -100,7 +100,22 @@ cp server/.env.example server/.env
 | `/api/conversations/:id` | PATCH | `{ title: string }` | `204 No Content` |
 | `/api/conversations/:id` | DELETE | — | `204 No Content` |
 | `/api/conversations/:id/messages` | GET | — | `Message[]` |
-| `/api/conversations/:id/messages` | POST | `{ content: string }` | `Message` (assistant reply) |
+| `/api/conversations/:id/messages` | POST | `{ content: string }` | `Message` (assistant reply, waits for agent to finish) |
+| `/api/conversations/:id/messages/stream` | POST | `{ content: string }` | SSE stream of agent events (see below) |
+
+### SSE stream events
+
+The stream endpoint returns a series of `text/event-stream` frames. Each frame is a JSON object with a `type` field:
+
+| Event type | Fields | Description |
+|------------|--------|-------------|
+| `token` | `content`, `timestamp` | Incremental text chunk from the LLM |
+| `tool_call` | `tool_name`, `tool_call_id`, `timestamp` | Agent invoked a tool |
+| `tool_result` | `tool_name`, `result`, `timestamp` | Tool returned a result |
+| `error` | `content`, `timestamp` | Agent or stream error |
+| `done` | `message?`, `timestamp` | Stream finished; `message` is the final persisted `Message` if available |
+
+The agent runs in a background goroutine independent of the HTTP connection — aborting the stream does **not** cancel the agent. The final state is always retrievable via `GET /api/conversations/:id/messages`.
 
 ## Database
 
