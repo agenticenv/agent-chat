@@ -1,22 +1,46 @@
 const DEFAULT_API_BASE = "/api"
 
-let configPromise: Promise<string> | null = null
+export interface ClientRuntimeConfig {
+  apiBase: string
+  /** When false, use REST POST /messages instead of SSE /messages/stream. */
+  enableStream: boolean
+}
 
-async function getApiBase(): Promise<string> {
-  if (configPromise) return configPromise
-  configPromise = (async () => {
+let runtimeConfigPromise: Promise<ClientRuntimeConfig> | null = null
+
+/**
+ * Browser runtime config: from `config.json` in production (Docker entrypoint),
+ * or from `VITE_ENABLE_STREAM` in dev (no config.json).
+ */
+export async function getRuntimeConfig(): Promise<ClientRuntimeConfig> {
+  if (runtimeConfigPromise) return runtimeConfigPromise
+  runtimeConfigPromise = (async () => {
+    if (import.meta.env.DEV) {
+      return {
+        apiBase: DEFAULT_API_BASE,
+        enableStream: import.meta.env.VITE_ENABLE_STREAM !== "false",
+      }
+    }
     try {
       const res = await fetch("/config.json", { cache: "no-store" })
       if (res.ok) {
-        const c = (await res.json()) as { apiBase?: string }
-        if (c.apiBase) return c.apiBase
+        const c = (await res.json()) as { apiBase?: string; enableStream?: boolean }
+        return {
+          apiBase: typeof c.apiBase === "string" && c.apiBase ? c.apiBase : DEFAULT_API_BASE,
+          enableStream: typeof c.enableStream === "boolean" ? c.enableStream : true,
+        }
       }
     } catch {
       /* ignore */
     }
-    return DEFAULT_API_BASE
+    return { apiBase: DEFAULT_API_BASE, enableStream: true }
   })()
-  return configPromise
+  return runtimeConfigPromise
+}
+
+async function getApiBase(): Promise<string> {
+  const c = await getRuntimeConfig()
+  return c.apiBase
 }
 
 async function parseJson(res: Response): Promise<unknown> {
