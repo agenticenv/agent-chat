@@ -4,6 +4,7 @@ import {
   getConversations,
   createConversation,
   getMessages,
+  getRuntimeConfig,
   streamMessage,
   sendMessage,
   renameConversation,
@@ -169,8 +170,35 @@ function syncChatUrl(setSearchParams: ReturnType<typeof useSearchParams>[1], cha
   }
 }
 
+/** First non-empty token creates the assistant row; later tokens append (avoids an empty bubble). */
+function appendStreamChunk(prev: Message[], streamingId: string, chunk: string): Message[] {
+  if (!chunk) return prev
+  const idx = prev.findIndex((m) => m.id === streamingId)
+  if (idx === -1) {
+    return [
+      ...prev,
+      {
+        id: streamingId,
+        role: "assistant",
+        content: chunk,
+        createdAt: new Date().toISOString(),
+      },
+    ]
+  }
+  const cur = prev[idx]
+  if (cur.role !== "assistant") return prev
+  const next = [...prev]
+  next[idx] = { ...cur, content: cur.content + chunk }
+  return next
+}
+
+function mergeDoneMessage(prev: Message[], streamingId: string, msg: Message): Message[] {
+  if (!prev.some((m) => m.id === streamingId)) return [...prev, msg]
+  return prev.map((m) => (m.id === streamingId ? msg : m))
+}
+
 export default function AssistantPage() {
-  const useStreaming = import.meta.env.VITE_ENABLE_STREAM !== "false"
+  const [streamingEnabled, setStreamingEnabled] = useState(true)
 
   const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<Conversation[]>([])
@@ -188,6 +216,16 @@ export default function AssistantPage() {
 
   useEffect(() => {
     setThemeMode(getEffectiveTheme())
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getRuntimeConfig().then((cfg) => {
+      if (!cancelled) setStreamingEnabled(cfg.enableStream)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
   const menuRef = useRef<HTMLDivElement>(null)
   /**
@@ -386,7 +424,7 @@ export default function AssistantPage() {
       const streamingId = `streaming-${Date.now()}`
       setInput("")
       stickToBottomRef.current = true
-      setMessages([userMsg, { id: streamingId, role: "assistant", content: "", createdAt: new Date().toISOString() }])
+      setMessages([userMsg])
       setAwaitingAssistantReply(true)
       try {
         const conv = await createConversation(titleFromFirstMessage(text))
@@ -394,22 +432,13 @@ export default function AssistantPage() {
         pendingFirstMessageForChatIdRef.current = conv.id
         setSelectedId(conv.id)
         syncChatUrl(setSearchParams, conv.id)
-        if (useStreaming) {
+        if (streamingEnabled) {
           await streamMessage(conv.id, text, (ev) => {
             if (ev.type === "token") {
-              setMessages((prev: Message[]) => {
-                const next = [...prev]
-                const last = next[next.length - 1]
-                if (last && last.id === streamingId) {
-                  next[next.length - 1] = { ...last, content: last.content + ev.content }
-                }
-                return next
-              })
+              setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.content))
             } else if (ev.type === "done") {
               if (ev.message) {
-                setMessages((prev: Message[]) =>
-                  prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
-                )
+                setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, ev.message!))
               }
             } else if (ev.type === "error") {
               setError(ev.content || "Agent error")
@@ -418,9 +447,7 @@ export default function AssistantPage() {
           })
         } else {
           const reply = await sendMessage(conv.id, text)
-          setMessages((prev: Message[]) =>
-            prev.map((m: Message) => (m.id === streamingId ? reply : m))
-          )
+          setMessages((prev: Message[]) => [...prev, reply])
         }
       } catch (e) {
         setMessages([])
@@ -442,30 +469,17 @@ export default function AssistantPage() {
     }
     const streamingId = `streaming-${Date.now()}`
     stickToBottomRef.current = true
-    setMessages((prev) => [
-      ...prev,
-      userMsg,
-      { id: streamingId, role: "assistant" as const, content: "", createdAt: new Date().toISOString() },
-    ])
+    setMessages((prev) => [...prev, userMsg])
     setInput("")
     setAwaitingAssistantReply(true)
     try {
-      if (useStreaming) {
+      if (streamingEnabled) {
         await streamMessage(selectedId, text, (ev) => {
           if (ev.type === "token") {
-            setMessages((prev: Message[]) => {
-              const next = [...prev]
-              const last = next[next.length - 1]
-              if (last && last.id === streamingId) {
-                next[next.length - 1] = { ...last, content: last.content + ev.content }
-              }
-              return next
-            })
+            setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.content))
           } else if (ev.type === "done") {
             if (ev.message) {
-              setMessages((prev: Message[]) =>
-                prev.map((m: Message) => (m.id === streamingId ? ev.message! : m))
-              )
+              setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, ev.message!))
             }
           } else if (ev.type === "error") {
             setError(ev.content || "Agent error")
@@ -474,9 +488,7 @@ export default function AssistantPage() {
         })
       } else {
         const reply = await sendMessage(selectedId, text)
-        setMessages((prev: Message[]) =>
-          prev.map((m: Message) => (m.id === streamingId ? reply : m))
-        )
+        setMessages((prev: Message[]) => [...prev, reply])
       }
       const chat = chats.find((c) => c.id === selectedId)
       if (isDefaultChatTitle(chat?.title)) {
@@ -710,7 +722,9 @@ export default function AssistantPage() {
                         </div>
                       </div>
                     ))}
-                    {awaitingAssistantReply && messages[messages.length - 1]?.content === "" && <AssistantTypingBubble />}
+                    {awaitingAssistantReply && messages[messages.length - 1]?.role === "user" && (
+                      <AssistantTypingBubble />
+                    )}
                   </div>
                 )}
               </div>
