@@ -1,11 +1,11 @@
 # Run from this directory (where docker-compose.yml lives).
 
-.PHONY: help up down restart-server restart-ui logs logs-ui secrets-scan
+.PHONY: help up down restart-server restart-worker restart-ui logs logs-worker logs-ui secrets-scan
 
 help:
 	@echo "Stack:  make up | make down"
-	@echo "Rebuild one service (image + container):  make restart-server | make restart-ui"
-	@echo "Logs:   make logs  (server)  |  make logs-ui"
+	@echo "Rebuild one service (image + container):  make restart-server | make restart-worker | make restart-ui"
+	@echo "Logs:   make logs  (server)  |  make logs-worker  |  make logs-ui"
 	@echo "Other:  make secrets-scan"
 
 up:
@@ -18,11 +18,17 @@ down:
 restart-server:
 	docker compose up -d --build server
 
+restart-worker:
+	docker compose up -d --build worker
+
 restart-ui:
 	docker compose up -d --build ui
 
 logs:
 	docker compose logs -f server
+
+logs-worker:
+	docker compose logs -f worker
 
 logs-ui:
 	docker compose logs -f ui
