@@ -1,6 +1,7 @@
 # Postgres auth is shared between the postgres service and server (see x-postgres-auth).
 # Server listens on :8080 in the container; published to host :9090 (avoids clashing with a local process on :8080).
-# After server/Dockerfile changes: make up   or   docker compose up -d --build
+# Both server and worker use the same image (server/Dockerfile). APP_MODE selects the role at runtime.
+# After code or Dockerfile changes: make up   or   docker compose up -d --build
 
 x-postgres-auth: &postgres-auth
   POSTGRES_USER: temporal
@@ -47,6 +48,7 @@ services:
       - "9090:8080"
     environment:
       <<: *postgres-auth
+      APP_MODE: server
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: agentdb
@@ -61,6 +63,30 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: server/Dockerfile  # same image as server; APP_MODE selects worker role
+    environment:
+      <<: *postgres-auth
+      APP_MODE: worker
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: agentdb
+      TEMPORAL_HOST: temporal
+      TEMPORAL_PORT: "7233"
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: agent-chat
+    env_file:
+      - ./server/.env # same LLM, agent settings as server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      server:
+        condition: service_started # ensure server runs migrations first
 
   temporal-ui:
     image: temporalio/ui:latest
