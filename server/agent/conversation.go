@@ -90,10 +90,11 @@ func (c *PGConversation) Clear(_ context.Context, _ string) error {
 	return nil
 }
 
-// IsDistributed returns false — the agent and its embedded Temporal worker run
-// in the same process, so distributed storage is not required.
+// IsDistributed returns true — PostgreSQL is shared between the API server and
+// worker processes, satisfying the SDK's requirement for distributed storage
+// when DisableLocalWorker / EnableRemoteWorkers are used.
 func (c *PGConversation) IsDistributed() bool {
-	return false
+	return true
 }
 
 // Ensure PGConversation satisfies the interface at compile time.
