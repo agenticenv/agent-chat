@@ -2,20 +2,22 @@ package stream
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
-	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
+
 	"github.com/agenticenv/agent-chat/server/store"
+	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
 )
 
-// Runner launches and manages bridge goroutines that translate SDK AgentEvents into wire Events and publish them to the Broker. 
-// Each bridge goroutine runs on a context derived from parentCtx (the server-level context), NOT from any HTTP request context. 
+// Runner launches and manages bridge goroutines that translate SDK AgentEvents into wire Events and publish them to the Broker.
+// Each bridge goroutine runs on a context derived from parentCtx (the server-level context), NOT from any HTTP request context.
 // This ensures that a client disconnect does not cancel the underlying Temporal agent workflow.
 type Runner struct {
 	agent     *sdkagent.Agent
 	broker    *Broker
 	messages  *store.MessageStore
-	rootAgent string         // name of the main agent; used to filter sub-agent Complete events
+	rootAgent string          // name of the main agent; used to filter sub-agent Complete events
 	parentCtx context.Context // server-level; canceled only on graceful shutdown
 }
 
@@ -76,64 +78,62 @@ func (r *Runner) run(ctx context.Context, convID, content string) {
 			continue
 		}
 
-		switch ev.Type {
+		switch evType := ev.Type(); evType {
 
-		case sdkagent.AgentEventContentDelta:
-			if ev.Content == "" {
-				continue
+		case sdkagent.AgentEventTypeTextMessageContent:
+			if t, ok := ev.(*sdkagent.AgentTextMessageContentEvent); ok && t.Delta != "" {
+				r.broker.Publish(convID, Event{
+					Type:      EventToken,
+					Content:   t.Delta,
+					Timestamp: agentEventTime(ev),
+				})
 			}
-			r.broker.Publish(convID, Event{
-				Type:      EventToken,
-				Content:   ev.Content,
-				Timestamp: ev.Timestamp,
-			})
 
-		case sdkagent.AgentEventToolCall:
-			if ev.ToolCall == nil {
-				continue
+		case sdkagent.AgentEventTypeToolCallStart:
+			if t, ok := ev.(*sdkagent.AgentToolCallStartEvent); ok {
+				r.broker.Publish(convID, Event{
+					Type:       EventToolCall,
+					ToolName:   t.ToolCallName,
+					ToolCallID: t.ToolCallID,
+					Timestamp:  agentEventTime(ev),
+				})
 			}
-			r.broker.Publish(convID, Event{
-				Type:       EventToolCall,
-				ToolName:   ev.ToolCall.ToolName,
-				ToolCallID: ev.ToolCall.ToolCallID,
-				Timestamp:  ev.Timestamp,
-			})
 
-		case sdkagent.AgentEventToolResult:
-			if ev.ToolCall == nil {
-				continue
+		case sdkagent.AgentEventTypeToolCallResult:
+			if t, ok := ev.(*sdkagent.AgentToolCallResultEvent); ok {
+				r.broker.Publish(convID, Event{
+					Type: EventToolResult,
+					//ToolName:  t.ToolCallName,
+					Result:    t.Content,
+					Timestamp: agentEventTime(ev),
+				})
 			}
-			r.broker.Publish(convID, Event{
-				Type:      EventToolResult,
-				ToolName:  ev.ToolCall.ToolName,
-				Result:    ev.ToolCall.Result,
-				Timestamp: ev.Timestamp,
-			})
 
-		case sdkagent.AgentEventError:
-			errStr := "agent error"
-			if ev.Error != nil {
-				errStr = ev.Error.Error()
+		case sdkagent.AgentEventTypeRunError:
+			if re, ok := ev.(*sdkagent.AgentRunErrorEvent); ok {
+				r.broker.Publish(convID, Event{
+					Type:      EventError,
+					Content:   re.Message,
+					Timestamp: agentEventTime(ev),
+				})
 			}
-			slog.Error("stream: agent error event", "conv", convID, "err", errStr)
-			r.broker.Publish(convID, Event{
-				Type:      EventError,
-				Content:   errStr,
-				Timestamp: ev.Timestamp,
-			})
 			return // defer closes topic
 
-		case sdkagent.AgentEventComplete:
-			// The SDK fans sub-agent Complete events into the same channel.
-			// Only the ROOT agent's Complete is the terminal signal.
-			// If AgentName is empty it means there are no sub-agents and the
-			// event is from the root agent by definition.
-			if ev.AgentName != "" && ev.AgentName != r.rootAgent {
-				slog.Debug("stream: ignoring sub-agent complete", "agent", ev.AgentName, "conv", convID)
+		case sdkagent.AgentEventTypeRunFinished:
+			fin, res := runResultFromFinishedEvent(ev)
+			if fin == nil {
+				return
+			}
+			if res == nil {
+				res = parseRunResultFromFinished(fin)
+			}
+			// Sub-agent RUN_FINISHED is ignored; root completion always emits done
+			// (even when streaming left AgentRunResult.Content empty).
+			if res != nil && res.AgentName != "" && res.AgentName != r.rootAgent {
+				slog.Debug("stream: ignoring sub-agent complete", "agent", res.AgentName, "conv", convID)
 				continue
 			}
-
-			done := r.buildDoneEvent(ctx, convID, ev.Timestamp, runStartTime)
+			done := r.buildDoneEvent(ctx, convID, agentEventTime(fin), runStartTime)
 			r.broker.Publish(convID, done)
 			return // defer closes topic
 
@@ -155,7 +155,7 @@ func (r *Runner) run(ctx context.Context, convID, content string) {
 // buildDoneEvent waits for the assistant reply to appear in the DB and returns an EventDone carrying it.
 
 // AgentEventComplete fires from the Temporal workflow before AddConversationMessagesActivity finishes writing the new message to Postgres.
-// To bridge this race, we retry the DB read (up to 10 × 150 ms = 1.5 s) until we find an assistant message whose CreatedAt is after runStartTime. 
+// To bridge this race, we retry the DB read (up to 10 × 150 ms = 1.5 s) until we find an assistant message whose CreatedAt is after runStartTime.
 // A 2-second buffer is subtracted from runStartTime to absorb any clock skew between the
 // Go server and Postgres.
 
@@ -188,4 +188,45 @@ func (r *Runner) buildDoneEvent(ctx context.Context, convID string, ts time.Time
 
 	slog.Warn("stream: new assistant message not found in DB after retries", "conv", convID)
 	return ev
+}
+
+func runResultFromFinishedEvent(ev sdkagent.AgentEvent) (*sdkagent.AgentRunFinishedEvent, *sdkagent.AgentRunResult) {
+	if ev == nil || ev.Type() != sdkagent.AgentEventTypeRunFinished {
+		return nil, nil
+	}
+	fin, ok := ev.(*sdkagent.AgentRunFinishedEvent)
+	if !ok || fin == nil {
+		return nil, nil
+	}
+	res, _ := fin.Result.(*sdkagent.AgentRunResult)
+	return fin, res
+}
+
+// parseRunResultFromFinished recovers [*sdkagent.AgentRunResult] after events round-trip through JSON
+// (e.g. event bus decode leaves Result as map[string]any, so a plain type assertion fails).
+func parseRunResultFromFinished(fin *sdkagent.AgentRunFinishedEvent) *sdkagent.AgentRunResult {
+	if fin == nil || fin.Result == nil {
+		return nil
+	}
+	b, err := json.Marshal(fin.Result)
+	if err != nil {
+		return nil
+	}
+	var out sdkagent.AgentRunResult
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil
+	}
+	return &out
+}
+
+// agentEventTime interprets BaseEvent timestamps as Unix milliseconds (AG-UI / SDK NewBaseEvent).
+func agentEventTime(ev sdkagent.AgentEvent) time.Time {
+	if ev == nil {
+		return time.Now()
+	}
+	ts := ev.Timestamp()
+	if ts == nil {
+		return time.Now()
+	}
+	return time.UnixMilli(*ts)
 }
