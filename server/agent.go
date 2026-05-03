@@ -72,7 +72,7 @@ func runAgent() {
 
 	// ── Stream broker + runner ────────────────────────────────────────────────
 	broker := stream.NewBroker()
-	runner := stream.NewRunner(a, broker, msgStore, cfg.Agent.Name, ctx)
+	runner := stream.NewRunner(a, broker, msgStore, ctx)
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	convH := handlers.NewConversationHandler(convStore)
