@@ -137,21 +137,29 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   if (!res.ok) throw new Error(`Failed to delete chat: ${res.status}`)
 }
 
-// ── Streaming ─────────────────────────────────────────────────────────────────
+// ── Streaming (AG-UI wire + server extension) ────────────────────────────────
+
+/** AG-UI / SDK event discriminator strings from the stream. */
+export const StreamEventType = {
+  TEXT_MESSAGE_CONTENT: "TEXT_MESSAGE_CONTENT",
+  RUN_ERROR: "RUN_ERROR",
+  RUN_FINISHED: "RUN_FINISHED",
+  /** App extension after RUN_FINISHED with persisted DB row (replaces legacy `done`). */
+  MESSAGE_PERSISTED: "MESSAGE_PERSISTED",
+} as const
 
 export type StreamEvent =
-  | { type: "token"; content: string; timestamp: string }
-  | { type: "tool_call"; tool_name: string; tool_call_id?: string; timestamp: string }
-  | { type: "tool_result"; tool_name: string; result: unknown; timestamp: string }
-  | { type: "error"; content: string; timestamp: string }
-  | { type: "done"; message?: Message; timestamp: string }
+  | { type: "TEXT_MESSAGE_CONTENT"; messageId?: string; delta: string; timestamp?: number }
+  | { type: "RUN_ERROR"; message: string; code?: string; timestamp?: number }
+  | { type: "RUN_FINISHED"; threadId?: string; runId?: string; result?: unknown; timestamp?: number }
+  | { type: "MESSAGE_PERSISTED"; message?: Message; timestamp: string }
 
 /**
  * POST /api/conversations/{id}/messages/stream
  *
  * Sends the user message and calls onEvent for each SSE frame the server
- * emits. Uses fetch() + ReadableStream (not EventSource) because we need to
- * POST a request body.
+ * emits (AG-UI JSON per frame, then MESSAGE_PERSISTED with DB message after RUN_FINISHED).
+ * Uses fetch() + ReadableStream (not EventSource) because we need to POST a body.
  *
  * The server runs the agent in a background goroutine independent of this
  * HTTP connection, so aborting via signal does NOT cancel the agent — it only
@@ -201,6 +209,7 @@ export async function streamMessage(
         if (!dataLine) continue
 
         try {
+          // Wire may include other AG-UI types; onEvent only acts on the ones it knows.
           const ev = JSON.parse(dataLine.slice(6)) as StreamEvent
           onEvent(ev)
         } catch {

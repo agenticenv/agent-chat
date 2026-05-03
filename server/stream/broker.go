@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sync"
 )
@@ -9,10 +10,10 @@ import (
 const subChannelBuf = 64
 
 // Subscription is a handle returned by Broker.Subscribe. The caller reads
-// events from Ch; the channel is closed when the topic ends.
+// raw JSON payloads from Ch; the channel is closed when the topic ends.
 type Subscription struct {
-	Ch      <-chan Event
-	ch      chan Event
+	Ch      <-chan []byte
+	ch      chan []byte
 	topicID string
 }
 
@@ -59,7 +60,7 @@ func (b *Broker) Subscribe(topicID string) (*Subscription, bool) {
 	if !ok {
 		return nil, false
 	}
-	ch := make(chan Event, subChannelBuf)
+	ch := make(chan []byte, subChannelBuf)
 	sub := &Subscription{Ch: ch, ch: ch, topicID: topicID}
 	t.subs[sub] = struct{}{}
 	return sub, true
@@ -75,16 +76,14 @@ func (b *Broker) Unsubscribe(sub *Subscription) {
 	}
 	if _, member := t.subs[sub]; member {
 		delete(t.subs, sub)
-		// Close the sub's channel so the HTTP handler's range loop exits.
 		close(sub.ch)
 	}
 }
 
-// Publish delivers ev to every subscriber of topicID. The send is
-// non-blocking per subscriber: if a subscriber's buffer is full, the event is
-// dropped for that subscriber and a warning is logged. This ensures a slow
-// client never stalls the bridge goroutine.
-func (b *Broker) Publish(topicID string, ev Event) {
+// Publish delivers payload (AG-UI or app extension JSON) to every subscriber
+// of topicID. The send is non-blocking per subscriber: if a buffer is full,
+// the payload is dropped for that subscriber and a warning is logged.
+func (b *Broker) Publish(topicID string, payload []byte) {
 	b.mu.Lock()
 	t, ok := b.topics[topicID]
 	var subs []*Subscription
@@ -96,14 +95,25 @@ func (b *Broker) Publish(topicID string, ev Event) {
 	}
 	b.mu.Unlock()
 
+	tname := agUIEventTypeName(payload)
 	for _, s := range subs {
 		select {
-		case s.ch <- ev:
+		case s.ch <- payload:
 		default:
 			slog.Warn("stream: subscriber buffer full, dropping event",
-				"topic", topicID, "event_type", ev.Type)
+				"topic", topicID, "event_type", tname)
 		}
 	}
+}
+
+func agUIEventTypeName(payload []byte) string {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &head); err != nil || head.Type == "" {
+		return "(unknown)"
+	}
+	return head.Type
 }
 
 // Close marks a topic done, closes every subscriber's channel, and removes

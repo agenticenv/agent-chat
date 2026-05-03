@@ -9,6 +9,7 @@ import {
   sendMessage,
   renameConversation,
   deleteConversation,
+  StreamEventType,
   type Conversation,
   type Message,
 } from "../api"
@@ -434,14 +435,15 @@ export default function AssistantPage() {
         syncChatUrl(setSearchParams, conv.id)
         if (streamingEnabled) {
           await streamMessage(conv.id, text, (ev) => {
-            if (ev.type === "token") {
-              setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.content))
-            } else if (ev.type === "done") {
-              if (ev.message) {
-                setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, ev.message!))
+            if (ev.type === StreamEventType.TEXT_MESSAGE_CONTENT && ev.delta) {
+              setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.delta))
+            } else if (ev.type === StreamEventType.MESSAGE_PERSISTED) {
+              const doneMsg = ev.message
+              if (doneMsg) {
+                setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, doneMsg))
               }
-            } else if (ev.type === "error") {
-              setError(ev.content || "Agent error")
+            } else if (ev.type === StreamEventType.RUN_ERROR) {
+              setError(ev.message || "Agent error")
               setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
             }
           })
@@ -475,14 +477,15 @@ export default function AssistantPage() {
     try {
       if (streamingEnabled) {
         await streamMessage(selectedId, text, (ev) => {
-          if (ev.type === "token") {
-            setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.content))
-          } else if (ev.type === "done") {
-            if (ev.message) {
-              setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, ev.message!))
+          if (ev.type === StreamEventType.TEXT_MESSAGE_CONTENT && ev.delta) {
+            setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.delta))
+          } else if (ev.type === StreamEventType.MESSAGE_PERSISTED) {
+            const doneMsg = ev.message
+            if (doneMsg) {
+              setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, doneMsg))
             }
-          } else if (ev.type === "error") {
-            setError(ev.content || "Agent error")
+          } else if (ev.type === StreamEventType.RUN_ERROR) {
+            setError(ev.message || "Agent error")
             setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
           }
         })

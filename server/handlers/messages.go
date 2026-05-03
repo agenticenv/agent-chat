@@ -87,7 +87,8 @@ func (h *MessageHandler) Send(w http.ResponseWriter, r *http.Request) {
 // POST /api/conversations/{id}/messages/stream
 //
 // Starts the agent run in a background goroutine (decoupled from this HTTP
-// request's context) and streams AgentEvents to the client as SSE frames.
+// request's context) and streams AG-UI JSON events (SDK ToJSON) as SSE frames,
+// followed by an app extension frame type MESSAGE_PERSISTED after root RUN_FINISHED.
 // A client disconnect does NOT cancel the agent run — it continues in the
 // background and the final state is retrievable via GET /messages.
 func (h *MessageHandler) Stream(w http.ResponseWriter, r *http.Request) {
@@ -150,25 +151,16 @@ func (h *MessageHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	clientGone := r.Context().Done()
 	for {
 		select {
-		case ev, open := <-sub.Ch:
+		case payload, open := <-sub.Ch:
 			if !open {
 				// Broker closed the topic (run complete or server shutdown).
 				return
 			}
-			data, err := json.Marshal(ev)
-			if err != nil {
-				continue
-			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
 				// Client write failed (disconnect). Return — the run keeps going.
 				return
 			}
 			flusher.Flush()
-
-			// After sending the terminal events we can close the connection cleanly.
-			if ev.Type == stream.EventDone || ev.Type == stream.EventError {
-				return
-			}
 
 		case <-clientGone:
 			// Client disconnected. Unsubscribe via defer; runner is unaffected.
