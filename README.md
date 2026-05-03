@@ -19,6 +19,8 @@ Most agent frameworks run in-process — if your server restarts, the agent run 
 - **Tailwind CSS v4** — Styling
 - **react-markdown** + **remark-gfm** — Message bubbles render Markdown (GFM)
 
+**Deploy shape:** Docker Compose runs the **API** (`APP_MODE=server`) and a **separate Temporal worker** (`APP_MODE=worker`) from the same server image — see **[server/README.md](server/README.md)**. Chat streaming uses **AG-UI–shaped JSON** over SSE (plus a small app extension for persisted message ids); see **[ui/README.md](ui/README.md)**.
+
 ## Prerequisites
 
 - **Docker** — [Docker Engine](https://docs.docker.com/engine/) with **Docker Compose** (the `docker compose` CLI; Compose v2 is bundled with Docker Desktop and current Engine installs).

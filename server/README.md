@@ -4,7 +4,9 @@ Go API server powered by [agent-sdk-go](https://github.com/agenticenv/agent-sdk-
 
 ## Architecture
 
-The server embeds a Temporal worker in the same process, so no separate worker deployment is needed. Conversations and messages are persisted in PostgreSQL, and the agent SDK handles LLM orchestration through Temporal workflows.
+The API and Temporal worker are **separate processes**, both built from the **same image**. **`APP_MODE`** selects the role (`server` = HTTP API + agent client; `worker` = Temporal worker polling the task queue). **Docker Compose** starts both plus Postgres and Temporal — see `docker-compose.yml` (`server` and `worker` services). Run migrations once from the API before workers rely on the schema (Compose orders `worker` after `server`).
+
+Conversations and messages live in PostgreSQL; LLM runs go through Temporal workflows via **agent-sdk-go**.
 
 ```
 server/
@@ -13,9 +15,11 @@ server/
 ├── db/           # PostgreSQL connection and migrations
 ├── handlers/     # HTTP route handlers
 ├── llm/          # Azure OpenAI client (adds api-key header + api-version param)
+├── stream/       # SSE broker — forwards AG-UI JSON from the agent stream
 ├── store/        # Data access layer
 ├── Dockerfile
-└── main.go       # Entrypoint — starts HTTP server and Temporal worker
+├── agent.go      # HTTP server entry when APP_MODE=server
+└── worker.go     # Temporal worker entry when APP_MODE=worker
 ```
 
 ## Prerequisites
@@ -28,9 +32,9 @@ server/
 From the **repository root**:
 
 ```bash
-# Backend only (server + its dependencies, no React UI)
-# Use this when running the UI locally with npm run dev (point SERVER_API_URL at http://localhost:9090 if the API is from Compose)
-docker compose up -d postgres temporal server
+# API + dependencies (add `worker` for Temporal execution — same image, APP_MODE=worker)
+# Full stack from repo root: `docker compose up -d` includes `server`, `worker`, and `ui`.
+docker compose up -d postgres temporal server worker
 ```
 
 **Ports (host):** The API is published at **`http://localhost:9090`** (Compose maps **9090 → 8080** in the server container so host **8080** is left for other tools). The UI in Docker is at **[http://localhost:3000](http://localhost:3000)**. The browser loads the UI, then calls the API using **`SERVER_API_URL`** baked into `config.json` (not through the UI container as a proxy). **Temporal UI** at **[http://localhost:8233](http://localhost:8233)** is optional: workflow execution visibility, tracing, and debugging — not required to use Agent Chat.
@@ -105,17 +109,15 @@ cp server/.env.example server/.env
 
 ### SSE stream events
 
-The stream endpoint returns a series of `text/event-stream` frames. Each frame is a JSON object with a `type` field:
+The stream endpoint returns `text/event-stream` frames. Each `data:` line is JSON whose discriminator is **`type`** (AG-UI event names from **agent-sdk-go**, e.g. `TEXT_MESSAGE_CONTENT`, `RUN_FINISHED`, `RUN_ERROR`). The bridge forwards **`ev.ToJSON()`** from the SDK where possible.
 
-| Event type | Fields | Description |
-|------------|--------|-------------|
-| `token` | `content`, `timestamp` | Incremental text chunk from the LLM |
-| `tool_call` | `tool_name`, `tool_call_id`, `timestamp` | Agent invoked a tool |
-| `tool_result` | `tool_name`, `result`, `timestamp` | Tool returned a result |
-| `error` | `content`, `timestamp` | Agent or stream error |
-| `done` | `message?`, `timestamp` | Stream finished; `message` is the final persisted `Message` if available |
+After a root **`RUN_FINISHED`**, the server appends one extension frame:
 
-The agent runs in a background goroutine independent of the HTTP connection — aborting the stream does **not** cancel the agent. The final state is always retrievable via `GET /api/conversations/:id/messages`.
+| `type` | Purpose |
+|--------|---------|
+| **`MESSAGE_PERSISTED`** | Optional persisted **`message`** row (DB id and body) when the assistant message has been written — small delay vs `RUN_FINISHED` is normal. |
+
+The agent run continues in a background goroutine — closing the browser stream does **not** cancel the workflow. Use **`GET /api/conversations/:id/messages`** to reconcile state.
 
 ## Database
 
