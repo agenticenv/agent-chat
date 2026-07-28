@@ -20,7 +20,7 @@ type Subscription struct {
 // topic represents one active agent run (one per conversation).
 type topic struct {
 	subs   map[*Subscription]struct{}
-	cancel context.CancelFunc // cancels the bridge goroutine; stored for CloseAll
+	cancel context.CancelFunc // cancels Events subscription only (not agent.Stream)
 }
 
 // Broker is an in-memory pub/sub hub. Each active agent run owns one topic
@@ -36,8 +36,8 @@ func NewBroker() *Broker {
 }
 
 // Open registers a new topic for topicID and stores cancel so CloseAll can
-// cancel the associated bridge goroutine. Returns ErrTopicExists if a run is
-// already active for that conversation.
+// stop the local Events subscriber without cancelling the Temporal agent run.
+// Returns ErrTopicExists if a run is already active for that conversation.
 func (b *Broker) Open(topicID string, cancel context.CancelFunc) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -131,8 +131,9 @@ func (b *Broker) Close(topicID string) {
 	delete(b.topics, topicID)
 }
 
-// CloseAll cancels every in-flight bridge context and closes all topics.
-// Called during graceful server shutdown.
+// CloseAll stops local Events subscribers and closes all topics.
+// It must not cancel agent.Stream contexts — that would cancel Temporal workflows.
+// Called during graceful server shutdown so the process can exit while runs continue.
 func (b *Broker) CloseAll() {
 	b.mu.Lock()
 	defer b.mu.Unlock()

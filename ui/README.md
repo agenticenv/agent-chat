@@ -3,9 +3,10 @@
 React Router 7 + Vite + Tailwind CSS.
 
 - **Local dev (`npm run dev`)**: The browser uses same-origin `/api`; Vite proxies `/api` to **`SERVER_API_URL`**.
-- **Production (`react-router-serve` in Docker)**: The Node server does **not** proxy `/api`. **`entrypoint.sh`** writes `config.json` with `apiBase` (**`${SERVER_API_URL}/api`**) and `enableStream` (from **`ENABLE_STREAM`**) so the browser calls the API directly and picks streaming vs REST (URLs must be **reachable from the browser**, e.g. `http://localhost:9090` when Compose maps **9090 → 8080** (browser uses host **9090**; the server process still listens on **8080** inside its container). The Go API enables CORS for that.
+- **Production (`react-router-serve` in Docker)**: The Node server does **not** proxy `/api`. **`entrypoint.sh`** writes `config.json` with `apiBase` (**`${SERVER_API_URL}/api`**) so the browser calls the API directly (URLs must be **reachable from the browser**, e.g. `http://localhost:9090` when Compose maps **9090 → 8080** (browser uses host **9090**; the server process still listens on **8080** inside its container). The Go API enables CORS for that.
 - **Messages**: Chat content is rendered as **Markdown** (GitHub-flavored via `remark-gfm`): lists, code fences, tables, links, etc. Plain text is valid Markdown.
-- **Streaming**: By default the UI uses SSE over **`POST .../messages/stream`**. Frames are **AG-UI–style JSON** (`type` = `TEXT_MESSAGE_CONTENT`, `RUN_ERROR`, etc.; see agent-sdk-go). The UI maps **`TEXT_MESSAGE_CONTENT.delta`** to incremental assistant text, **`RUN_ERROR.message`** to errors, and **`MESSAGE_PERSISTED`** (server extension after `RUN_FINISHED`) to replace the streaming bubble with the persisted message id. In Docker, set **`ENABLE_STREAM=false`** for REST-only mode (runtime — no rebuild); in local dev use **`VITE_ENABLE_STREAM=false`** in `ui/.env`.
+- **Streaming**: The UI always uses SSE over **`POST .../messages`**. Frames are **AG-UI–style JSON** (`type` = `TEXT_MESSAGE_CONTENT`, `RUN_ERROR`, etc.; see agent-sdk-go). The UI maps **`TEXT_MESSAGE_CONTENT.delta`** to incremental assistant text, **`RUN_ERROR.message`** to errors, and **`MESSAGE_PERSISTED`** (server extension after `RUN_FINISHED`) to replace the streaming bubble with the persisted message id.
+- **Resume**: If SSE drops mid-turn (API restart, network blip), the UI auto-calls **`POST .../resume`** with backoff until the run finishes — stay on the same chat; no re-select required. Selecting a chat also follows a `running` turn the same way.
 
 ## Run locally
 
@@ -21,28 +22,7 @@ Open [http://localhost:5173](http://localhost:5173). Start the Go API (or point 
 | Variable | Where | Description |
 |----------|-------|-------------|
 | `SERVER_API_URL` | `.env` (dev) / Docker | Backend **origin** only, no `/api` suffix — must be reachable from the **browser** (not a Docker-only hostname like `http://server:8080`). **Vite** uses it for the dev proxy (`/api` → `${SERVER_API_URL}/api`). **Docker** `entrypoint.sh` bakes the same value into `config.json` for client-side `fetch`. Compose defaults to **`http://localhost:9090`** (host **9090** → container **8080**, so local **8080** stays free). |
-| `VITE_ENABLE_STREAM` | `ui/.env` (local dev only) | `true` (default) = SSE streaming; `false` = REST. Baked in at Vite dev server startup. |
-| `ENABLE_STREAM` | Docker `ui` service env / `docker run -e` | Same meaning as `VITE_ENABLE_STREAM`, but read at **container start** — `entrypoint.sh` writes `enableStream` into `config.json`. No image rebuild. Compose default **`true`**. |
 | `PORT` | Docker | HTTP port for `react-router-serve`. Default `3000`. |
-
-## Streaming vs REST mode
-
-The UI supports two response modes:
-
-| Mode | Value | Behavior |
-|------|-------|----------|
-| **Streaming** (default) | `true` or unset | Uses `POST .../messages/stream` — SSE carries AG-UI JSON frames; assistant text streams via **`TEXT_MESSAGE_CONTENT`** |
-| **REST** | `false` | Uses `POST .../messages` — waits for the agent to finish, then displays the full response at once |
-
-Both modes show a typing indicator while waiting. The backend supports both endpoints — no server changes needed.
-
-**Local dev:** set `VITE_ENABLE_STREAM=false` (or `true`) in `ui/.env` and restart `npm run dev`.
-
-**Docker:** set `ENABLE_STREAM` on the `ui` service (see `docker-compose.yml`) or pass `-e ENABLE_STREAM=false`. The entrypoint regenerates `config.json` on each start — **restart the container**, no rebuild:
-
-```bash
-ENABLE_STREAM=false docker compose up -d ui
-```
 
 ### Local dev — backend on a different host/port
 

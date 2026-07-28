@@ -8,9 +8,12 @@ import (
 
 const schema = `
 CREATE TABLE IF NOT EXISTS conversations (
-    id         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    title      TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                 TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    title              TEXT NOT NULL,
+    status             TEXT NOT NULL DEFAULT 'idle',
+    agent_stream_id    TEXT NOT NULL DEFAULT '',
+    last_event_offset  BIGINT NOT NULL DEFAULT 0,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS messages (

@@ -14,8 +14,7 @@ import (
 // embedded Temporal worker that runs in the same process.
 //
 // Persistence strategy:
-//   - The handler always writes the user message before calling agent.Run.
-//   - The SDK workflow calls AddMessage for the assistant reply after the LLM responds.
+//   - The SDK workflow calls AddMessage for user/assistant/tool messages.
 //   - ListMessages returns everything from Postgres, so both the REST API and
 //     the SDK's LLM context window share the same source of truth.
 type PGConversation struct {
@@ -28,9 +27,9 @@ func NewPGConversation(s *store.MessageStore) *PGConversation {
 }
 
 // AddMessage persists a message to the conversation. Called by the Temporal
-// workflow via AddConversationMessagesActivity after each run completes.
+// workflow via AddConversationMessagesActivity.
 // The SDK owns all persistence — user, assistant, and tool messages are all
-// written here. The handler no longer pre-writes messages before agent.Run.
+// written here.
 func (c *PGConversation) AddMessage(ctx context.Context, conversationID string, msg interfaces.Message) error {
 	_, err := c.store.Create(ctx, conversationID, string(msg.Role), msg.Content)
 	return err

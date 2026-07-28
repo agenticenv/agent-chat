@@ -9,13 +9,15 @@ package agentsetup
 
 import (
 	"errors"
+
+	"github.com/agenticenv/agent-chat/server/config"
 	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
+	"github.com/agenticenv/agent-sdk-go/pkg/conversation"
 	"github.com/agenticenv/agent-sdk-go/pkg/interfaces"
 	"github.com/agenticenv/agent-sdk-go/pkg/llm"
 	"github.com/agenticenv/agent-sdk-go/pkg/llm/anthropic"
 	"github.com/agenticenv/agent-sdk-go/pkg/llm/gemini"
 	"github.com/agenticenv/agent-sdk-go/pkg/llm/openai"
-	"github.com/agenticenv/agent-chat/server/config"
 )
 
 // CommonOptions builds the agent option slice shared by the API server and
@@ -39,10 +41,11 @@ func CommonOptions(cfg *config.Config, conv interfaces.Conversation) ([]sdkagent
 		sdkagent.WithSystemPrompt(cfg.Agent.SystemPrompt),
 		sdkagent.WithLogLevel(cfg.LogLevel),
 		sdkagent.WithLLMClient(llmClient),
-		sdkagent.WithConversation(conv),
-		sdkagent.WithConversationSize(cfg.Agent.ConvWindowSize),
+		sdkagent.WithConversation(conversation.Config{
+			Conversation: conv,
+			Size:         cfg.Agent.ConvWindowSize,
+		}),
 		sdkagent.WithToolApprovalPolicy(sdkagent.AutoToolApprovalPolicy()),
-		sdkagent.WithStream(true),
 	}, nil
 }
 

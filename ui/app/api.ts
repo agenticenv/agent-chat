@@ -2,38 +2,32 @@ const DEFAULT_API_BASE = "/api"
 
 export interface ClientRuntimeConfig {
   apiBase: string
-  /** When false, use REST POST /messages instead of SSE /messages/stream. */
-  enableStream: boolean
 }
 
 let runtimeConfigPromise: Promise<ClientRuntimeConfig> | null = null
 
 /**
  * Browser runtime config: from `config.json` in production (Docker entrypoint),
- * or from `VITE_ENABLE_STREAM` in dev (no config.json).
+ * or same-origin `/api` in local Vite dev (no config.json).
  */
 export async function getRuntimeConfig(): Promise<ClientRuntimeConfig> {
   if (runtimeConfigPromise) return runtimeConfigPromise
   runtimeConfigPromise = (async () => {
     if (import.meta.env.DEV) {
-      return {
-        apiBase: DEFAULT_API_BASE,
-        enableStream: import.meta.env.VITE_ENABLE_STREAM !== "false",
-      }
+      return { apiBase: DEFAULT_API_BASE }
     }
     try {
       const res = await fetch("/config.json", { cache: "no-store" })
       if (res.ok) {
-        const c = (await res.json()) as { apiBase?: string; enableStream?: boolean }
+        const c = (await res.json()) as { apiBase?: string }
         return {
           apiBase: typeof c.apiBase === "string" && c.apiBase ? c.apiBase : DEFAULT_API_BASE,
-          enableStream: typeof c.enableStream === "boolean" ? c.enableStream : true,
         }
       }
     } catch {
       /* ignore */
     }
-    return { apiBase: DEFAULT_API_BASE, enableStream: true }
+    return { apiBase: DEFAULT_API_BASE }
   })()
   return runtimeConfigPromise
 }
@@ -59,9 +53,12 @@ async function parseJson(res: Response): Promise<unknown> {
   }
 }
 
+export type ConversationStatus = "idle" | "running" | "completed" | "failed"
+
 export interface Conversation {
   id: string
   title: string
+  status?: ConversationStatus
   createdAt?: string
 }
 
@@ -102,20 +99,6 @@ export async function getMessages(conversationId: string): Promise<Message[]> {
   return Array.isArray(data) ? data : data.messages ?? []
 }
 
-export async function sendMessage(conversationId: string, content: string): Promise<Message> {
-  const base = await getApiBase()
-  const res = await fetch(`${base}/conversations/${conversationId}/messages`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  })
-  if (!res.ok) throw new Error(`Failed to send message: ${res.status}`)
-  const data = (await parseJson(res)) as { message?: Message } & Message
-  const msg = data.message ?? data
-  if (!msg?.id || !msg?.role || !msg?.content) throw new Error("Invalid message response")
-  return msg
-}
-
 export async function renameConversation(
   conversationId: string,
   title: string
@@ -154,35 +137,10 @@ export type StreamEvent =
   | { type: "RUN_FINISHED"; threadId?: string; runId?: string; result?: unknown; timestamp?: number }
   | { type: "MESSAGE_PERSISTED"; message?: Message; timestamp: string }
 
-/**
- * POST /api/conversations/{id}/messages/stream
- *
- * Sends the user message and calls onEvent for each SSE frame the server
- * emits (AG-UI JSON per frame, then MESSAGE_PERSISTED with DB message after RUN_FINISHED).
- * Uses fetch() + ReadableStream (not EventSource) because we need to POST a body.
- *
- * The server runs the agent in a background goroutine independent of this
- * HTTP connection, so aborting via signal does NOT cancel the agent — it only
- * stops receiving events. The final state is always retrievable via getMessages().
- */
-export async function streamMessage(
-  conversationId: string,
-  content: string,
+async function readSSEBody(
+  res: Response,
   onEvent: (e: StreamEvent) => void,
-  signal?: AbortSignal,
 ): Promise<void> {
-  const base = await getApiBase()
-  const res = await fetch(`${base}/conversations/${conversationId}/messages/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-    signal,
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new Error(`Stream failed: ${res.status}${text ? ` — ${text}` : ""}`)
-  }
   if (!res.body) throw new Error("No response body from stream endpoint")
 
   const reader = res.body.getReader()
@@ -196,20 +154,15 @@ export async function streamMessage(
 
       buf += decoder.decode(value, { stream: true })
 
-      // SSE frames are separated by a blank line (\n\n).
-      // A single read() may contain multiple frames or a partial frame.
       let sep: number
       while ((sep = buf.indexOf("\n\n")) !== -1) {
         const frame = buf.slice(0, sep)
         buf = buf.slice(sep + 2)
 
-        // Find the data line inside the frame (SSE allows multi-line frames
-        // with "data: " prefix; we only emit single-line data frames).
         const dataLine = frame.split("\n").find((l) => l.startsWith("data: "))
         if (!dataLine) continue
 
         try {
-          // Wire may include other AG-UI types; onEvent only acts on the ones it knows.
           const ev = JSON.parse(dataLine.slice(6)) as StreamEvent
           onEvent(ev)
         } catch {
@@ -220,4 +173,154 @@ export async function streamMessage(
   } finally {
     reader.releaseLock()
   }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"))
+      return
+    }
+    const t = setTimeout(resolve, ms)
+    const onAbort = () => {
+      clearTimeout(t)
+      reject(new DOMException("Aborted", "AbortError"))
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && e.name === "AbortError"
+}
+
+function isTerminalStreamEvent(ev: StreamEvent): "ok" | "error" | null {
+  if (ev.type === StreamEventType.RUN_ERROR) return "error"
+  if (
+    ev.type === StreamEventType.MESSAGE_PERSISTED ||
+    ev.type === StreamEventType.RUN_FINISHED
+  ) {
+    return "ok"
+  }
+  return null
+}
+
+const RESUME_BACKOFF_MS = [400, 800, 1500, 2500, 4000] as const
+
+/**
+ * Reattach to an in-progress run, retrying while the API is down or the SSE
+ * drops mid-stream. Callers keep the same onEvent so tokens continue in place.
+ */
+export async function followRunningStream(
+  conversationId: string,
+  onEvent: (e: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<"completed" | "failed" | "not_running" | "aborted"> {
+  let terminal: "ok" | "error" | null = null
+  const wrap = (ev: StreamEvent) => {
+    const t = isTerminalStreamEvent(ev)
+    if (t) terminal = t
+    onEvent(ev)
+  }
+
+  let attempt = 0
+  while (!signal?.aborted) {
+    try {
+      const outcome = await resumeStream(conversationId, wrap, signal)
+      if (terminal === "error") return "failed"
+      if (terminal === "ok") return "completed"
+      if (outcome === "not_running") return "not_running"
+      // empty / resumed without terminal: SSE ended while run may still be live
+    } catch (e) {
+      if (isAbortError(e) || signal?.aborted) return "aborted"
+      // API restart / network blip — retry
+    }
+
+    const delay = RESUME_BACKOFF_MS[Math.min(attempt, RESUME_BACKOFF_MS.length - 1)]
+    attempt++
+    try {
+      await sleep(delay, signal)
+    } catch {
+      return "aborted"
+    }
+  }
+  return "aborted"
+}
+
+/**
+ * POST /api/conversations/{id}/messages
+ *
+ * Sends the user message and streams SSE. If the connection drops before a
+ * terminal event (e.g. API restart), automatically follows via /resume until
+ * the run finishes — transparent to the user on the same chat view.
+ */
+export async function streamMessage(
+  conversationId: string,
+  content: string,
+  onEvent: (e: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<"completed" | "failed" | "not_running" | "aborted"> {
+  let terminal: "ok" | "error" | null = null
+  const wrap = (ev: StreamEvent) => {
+    const t = isTerminalStreamEvent(ev)
+    if (t) terminal = t
+    onEvent(ev)
+  }
+
+  let streamStarted = false
+  try {
+    const base = await getApiBase()
+    const res = await fetch(`${base}/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+      signal,
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      throw new Error(`Stream failed: ${res.status}${text ? ` — ${text}` : ""}`)
+    }
+    streamStarted = true
+    await readSSEBody(res, wrap)
+  } catch (e) {
+    if (isAbortError(e) || signal?.aborted) return "aborted"
+    if (terminal === "error") return "failed"
+    if (terminal === "ok") return "completed"
+    if (!streamStarted) throw e
+    // Connection lost after the run started — reconnect via resume.
+    return followRunningStream(conversationId, onEvent, signal)
+  }
+
+  if (terminal === "error") return "failed"
+  if (terminal === "ok") return "completed"
+  return followRunningStream(conversationId, onEvent, signal)
+}
+
+/**
+ * POST /api/conversations/{id}/resume
+ *
+ * Reattaches to an in-progress agent stream (server uses stored stream id + offset).
+ * Resolves without calling onEvent when the conversation is not running (409) or
+ * the stream ended before subscribe (204).
+ */
+export async function resumeStream(
+  conversationId: string,
+  onEvent: (e: StreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<"resumed" | "not_running" | "empty"> {
+  const base = await getApiBase()
+  const res = await fetch(`${base}/conversations/${conversationId}/resume`, {
+    method: "POST",
+    signal,
+  })
+
+  if (res.status === 409) return "not_running"
+  if (res.status === 204) return "empty"
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    throw new Error(`Resume failed: ${res.status}${text ? ` — ${text}` : ""}`)
+  }
+  await readSSEBody(res, onEvent)
+  return "resumed"
 }

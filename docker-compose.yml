@@ -107,8 +107,6 @@ services:
     environment:
       # Backend origin (no /api): Vite dev proxy target; Docker entrypoint writes config.json for the browser.
       SERVER_API_URL: ${SERVER_API_URL:-http://localhost:9090}
-      # true = SSE streaming (default), false = REST — read at container start (no image rebuild).
-      ENABLE_STREAM: ${ENABLE_STREAM:-true}
     depends_on:
       - server
 

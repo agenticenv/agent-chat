@@ -62,7 +62,6 @@ func runAgent() {
 
 	a, err := sdkagent.NewAgent(append(opts,
 		sdkagent.DisableLocalWorker(),
-		sdkagent.EnableRemoteWorkers(),
 	)...)
 	if err != nil {
 		log.Fatalf("agent: %v", err)
@@ -72,11 +71,11 @@ func runAgent() {
 
 	// ── Stream broker + runner ────────────────────────────────────────────────
 	broker := stream.NewBroker()
-	runner := stream.NewRunner(a, broker, msgStore, ctx)
+	runner := stream.NewRunner(a, broker, msgStore, convStore, ctx)
 
 	// ── Handlers ──────────────────────────────────────────────────────────────
 	convH := handlers.NewConversationHandler(convStore)
-	msgH := handlers.NewMessageHandler(msgStore, convStore, a, runner, broker)
+	msgH := handlers.NewMessageHandler(msgStore, convStore, runner, broker)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -90,8 +89,8 @@ func runAgent() {
 		r.Patch("/conversations/{id}", convH.Update)
 		r.Delete("/conversations/{id}", convH.Delete)
 		r.Get("/conversations/{id}/messages", msgH.List)
-		r.Post("/conversations/{id}/messages", msgH.Send)
-		r.Post("/conversations/{id}/messages/stream", msgH.Stream)
+		r.Post("/conversations/{id}/messages", msgH.Stream)
+		r.Post("/conversations/{id}/resume", msgH.Resume)
 	})
 
 	// ── HTTP server with graceful shutdown ────────────────────────────────────
@@ -116,7 +115,8 @@ func runAgent() {
 	<-quit
 	slog.Info("shutting down")
 
-	// Cancel all in-flight bridge goroutines before stopping the HTTP server.
+	// Detach local SSE/Events bridges only — do not cancel agent.Stream (that
+	// would cancel Temporal workflows). Runs continue; clients resume via /resume.
 	broker.CloseAll()
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

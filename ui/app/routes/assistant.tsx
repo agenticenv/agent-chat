@@ -1,17 +1,18 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, forwardRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, forwardRef, type Dispatch, type SetStateAction } from "react"
 import { useSearchParams } from "react-router"
 import {
   getConversations,
   createConversation,
   getMessages,
-  getRuntimeConfig,
   streamMessage,
-  sendMessage,
+  followRunningStream,
   renameConversation,
   deleteConversation,
   StreamEventType,
   type Conversation,
+  type ConversationStatus,
   type Message,
+  type StreamEvent,
 } from "../api"
 import { MessageMarkdown } from "../components/MessageMarkdown"
 
@@ -198,9 +199,34 @@ function mergeDoneMessage(prev: Message[], streamingId: string, msg: Message): M
   return prev.map((m) => (m.id === streamingId ? msg : m))
 }
 
-export default function AssistantPage() {
-  const [streamingEnabled, setStreamingEnabled] = useState(true)
+function applyStreamEvent(
+  ev: StreamEvent,
+  streamingId: string,
+  setMessages: Dispatch<SetStateAction<Message[]>>,
+  setError: Dispatch<SetStateAction<string | null>>,
+): void {
+  if (ev.type === StreamEventType.TEXT_MESSAGE_CONTENT && ev.delta) {
+    setMessages((prev) => appendStreamChunk(prev, streamingId, ev.delta))
+  } else if (ev.type === StreamEventType.MESSAGE_PERSISTED) {
+    const doneMsg = ev.message
+    if (doneMsg) {
+      setMessages((prev) => mergeDoneMessage(prev, streamingId, doneMsg))
+    }
+  } else if (ev.type === StreamEventType.RUN_ERROR) {
+    setError(ev.message || "Agent error")
+    setMessages((prev) => prev.filter((m) => m.id !== streamingId))
+  }
+}
 
+function setChatStatus(
+  setChats: Dispatch<SetStateAction<Conversation[]>>,
+  chatId: string,
+  status: ConversationStatus,
+): void {
+  setChats((prev) => prev.map((c) => (c.id === chatId ? { ...c, status } : c)))
+}
+
+export default function AssistantPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [chats, setChats] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -218,25 +244,18 @@ export default function AssistantPage() {
   useEffect(() => {
     setThemeMode(getEffectiveTheme())
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    getRuntimeConfig().then((cfg) => {
-      if (!cancelled) setStreamingEnabled(cfg.enableStream)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
   const menuRef = useRef<HTMLDivElement>(null)
   /**
    * Blocks getMessages while the first message is in flight — avoids Strict Mode / empty fetch
-   * overwriting optimistic [userMsg]. Cleared in `finally` after sendMessage.
+   * overwriting optimistic [userMsg]. Cleared in `finally` after streamMessage.
    */
   const pendingFirstMessageForChatIdRef = useRef<string | null>(null)
+  /** Latest chats for resume status check without re-running the select effect. */
+  const chatsRef = useRef(chats)
+  chatsRef.current = chats
   /** Set as soon as the user sends from the landing page so the hero does not flash before paint. */
   const [hasLeftLanding, setHasLeftLanding] = useState(false)
-  /** True while waiting for the assistant reply after sendMessage. */
+  /** True while waiting for the assistant reply after streamMessage. */
   const [awaitingAssistantReply, setAwaitingAssistantReply] = useState(false)
   const sendInFlightRef = useRef(false)
   /** Shared ref so focus stays in the composer after send (center or bottom layout). */
@@ -304,19 +323,55 @@ export default function AssistantPage() {
       return
     }
     let cancelled = false
+    const ac = new AbortController()
     setLoadingMessages(true)
-    getMessages(selectedId)
-      .then((list) => {
-        if (!cancelled) setMessages(list)
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load messages")
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingMessages(false)
-      })
+    ;(async () => {
+      try {
+        const list = await getMessages(selectedId)
+        if (cancelled) return
+        setMessages(list)
+        setLoadingMessages(false)
+
+        // Always try follow — server 409 if not running. Auto-retries if the API
+        // restarts mid-stream so tokens continue on the same chat view.
+        setAwaitingAssistantReply(true)
+        const streamingId = `streaming-resume-${Date.now()}`
+        let sawError = false
+        try {
+          const outcome = await followRunningStream(
+            selectedId,
+            (ev) => {
+              if (ev.type === StreamEventType.RUN_ERROR) sawError = true
+              applyStreamEvent(ev, streamingId, setMessages, setError)
+            },
+            ac.signal,
+          )
+          if (cancelled) return
+          if (outcome === "completed" || outcome === "failed") {
+            setChatStatus(setChats, selectedId, sawError || outcome === "failed" ? "failed" : "completed")
+          } else if (outcome === "not_running") {
+            // Run finished while disconnected — refresh persisted messages.
+            const latest = await getMessages(selectedId)
+            if (!cancelled) setMessages(latest)
+          }
+        } catch (e) {
+          if (cancelled || ac.signal.aborted) return
+          setError(e instanceof Error ? e.message : "Failed to resume stream")
+          setMessages((prev) => prev.filter((m) => m.id !== streamingId))
+          setChatStatus(setChats, selectedId, "failed")
+        } finally {
+          if (!cancelled) setAwaitingAssistantReply(false)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load messages")
+          setLoadingMessages(false)
+        }
+      }
+    })()
     return () => {
       cancelled = true
+      ac.abort()
     }
   }, [selectedId])
 
@@ -429,27 +484,22 @@ export default function AssistantPage() {
       setAwaitingAssistantReply(true)
       try {
         const conv = await createConversation(titleFromFirstMessage(text))
-        setChats((prev) => [conv, ...prev])
+        setChats((prev) => [{ ...conv, status: "running" }, ...prev])
         pendingFirstMessageForChatIdRef.current = conv.id
         setSelectedId(conv.id)
         syncChatUrl(setSearchParams, conv.id)
-        if (streamingEnabled) {
-          await streamMessage(conv.id, text, (ev) => {
-            if (ev.type === StreamEventType.TEXT_MESSAGE_CONTENT && ev.delta) {
-              setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.delta))
-            } else if (ev.type === StreamEventType.MESSAGE_PERSISTED) {
-              const doneMsg = ev.message
-              if (doneMsg) {
-                setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, doneMsg))
-              }
-            } else if (ev.type === StreamEventType.RUN_ERROR) {
-              setError(ev.message || "Agent error")
-              setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
-            }
-          })
+        let sawError = false
+        const outcome = await streamMessage(conv.id, text, (ev) => {
+          if (ev.type === StreamEventType.RUN_ERROR) sawError = true
+          applyStreamEvent(ev, streamingId, setMessages, setError)
+        })
+        if (outcome === "aborted") return
+        if (outcome === "not_running") {
+          const latest = await getMessages(conv.id)
+          setMessages(latest)
+          setChatStatus(setChats, conv.id, "completed")
         } else {
-          const reply = await sendMessage(conv.id, text)
-          setMessages((prev: Message[]) => [...prev, reply])
+          setChatStatus(setChats, conv.id, sawError || outcome === "failed" ? "failed" : "completed")
         }
       } catch (e) {
         setMessages([])
@@ -474,24 +524,20 @@ export default function AssistantPage() {
     setMessages((prev) => [...prev, userMsg])
     setInput("")
     setAwaitingAssistantReply(true)
+    setChatStatus(setChats, selectedId, "running")
     try {
-      if (streamingEnabled) {
-        await streamMessage(selectedId, text, (ev) => {
-          if (ev.type === StreamEventType.TEXT_MESSAGE_CONTENT && ev.delta) {
-            setMessages((prev: Message[]) => appendStreamChunk(prev, streamingId, ev.delta))
-          } else if (ev.type === StreamEventType.MESSAGE_PERSISTED) {
-            const doneMsg = ev.message
-            if (doneMsg) {
-              setMessages((prev: Message[]) => mergeDoneMessage(prev, streamingId, doneMsg))
-            }
-          } else if (ev.type === StreamEventType.RUN_ERROR) {
-            setError(ev.message || "Agent error")
-            setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
-          }
-        })
+      let sawError = false
+      const outcome = await streamMessage(selectedId, text, (ev) => {
+        if (ev.type === StreamEventType.RUN_ERROR) sawError = true
+        applyStreamEvent(ev, streamingId, setMessages, setError)
+      })
+      if (outcome === "aborted") return
+      if (outcome === "not_running") {
+        const latest = await getMessages(selectedId)
+        setMessages(latest)
+        setChatStatus(setChats, selectedId, "completed")
       } else {
-        const reply = await sendMessage(selectedId, text)
-        setMessages((prev: Message[]) => [...prev, reply])
+        setChatStatus(setChats, selectedId, sawError || outcome === "failed" ? "failed" : "completed")
       }
       const chat = chats.find((c) => c.id === selectedId)
       if (isDefaultChatTitle(chat?.title)) {
@@ -504,6 +550,7 @@ export default function AssistantPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send message")
       setMessages((prev: Message[]) => prev.filter((m: Message) => m.id !== streamingId))
+      setChatStatus(setChats, selectedId, "failed")
     } finally {
       setAwaitingAssistantReply(false)
       sendInFlightRef.current = false

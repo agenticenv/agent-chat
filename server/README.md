@@ -99,17 +99,19 @@ cp server/.env.example server/.env
 
 | Endpoint | Method | Request | Response |
 |----------|--------|---------|----------|
-| `/api/conversations` | GET | — | `Conversation[]` |
-| `/api/conversations` | POST | `{ title?: string }` (empty title defaults to **New chat**) | `{ id, title, createdAt }` |
+| `/api/conversations` | GET | — | `Conversation[]` (`id`, `title`, `status`, `createdAt`) |
+| `/api/conversations` | POST | `{ title?: string }` (empty title defaults to **New chat**) | `{ id, title, status, createdAt }` |
 | `/api/conversations/:id` | PATCH | `{ title: string }` | `204 No Content` |
 | `/api/conversations/:id` | DELETE | — | `204 No Content` |
 | `/api/conversations/:id/messages` | GET | — | `Message[]` |
-| `/api/conversations/:id/messages` | POST | `{ content: string }` | `Message` (assistant reply, waits for agent to finish) |
-| `/api/conversations/:id/messages/stream` | POST | `{ content: string }` | SSE stream of agent events (see below) |
+| `/api/conversations/:id/messages` | POST | `{ content: string }` | SSE stream of agent events (see below) |
+| `/api/conversations/:id/resume` | POST | — | SSE resume when conversation `status` is `running` (server uses stored `agent_stream_id` + `last_event_offset`). `409` if not running. |
 
 ### SSE stream events
 
-The stream endpoint returns `text/event-stream` frames. Each `data:` line is JSON whose discriminator is **`type`** (AG-UI event names from **agent-sdk-go**, e.g. `TEXT_MESSAGE_CONTENT`, `RUN_FINISHED`, `RUN_ERROR`). The bridge forwards **`ev.ToJSON()`** from the SDK where possible.
+The **messages** and **resume** endpoints return `text/event-stream` frames. Each `data:` line is JSON whose discriminator is **`type`** (AG-UI event names from **agent-sdk-go**, e.g. `TEXT_MESSAGE_CONTENT`, `RUN_FINISHED`, `RUN_ERROR`). The bridge forwards **`ev.ToJSON()`** from the SDK where possible.
+
+While streaming, the server updates the conversation row (`status=running`, `agent_stream_id`, `last_event_offset`). On finish/error it clears the stream id/offset and sets `status` to `completed` or `failed`.
 
 After a root **`RUN_FINISHED`**, the server appends one extension frame:
 
@@ -117,7 +119,7 @@ After a root **`RUN_FINISHED`**, the server appends one extension frame:
 |--------|---------|
 | **`MESSAGE_PERSISTED`** | Optional persisted **`message`** row (DB id and body) when the assistant message has been written — small delay vs `RUN_FINISHED` is normal. |
 
-The agent run continues in a background goroutine — closing the browser stream does **not** cancel the workflow. Use **`GET /api/conversations/:id/messages`** to reconcile state.
+The agent run continues in a background goroutine — closing the browser stream does **not** cancel the workflow. Reopen with **`POST /api/conversations/:id/resume`** while `status` is `running`, or use **`GET /api/conversations/:id/messages`** to reconcile persisted messages.
 
 ## Database
 
