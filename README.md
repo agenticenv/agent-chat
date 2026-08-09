@@ -1,8 +1,12 @@
 # Agent Chat
 
-A demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go API, with durable workflow-backed conversations and real-time streaming via SSE.
+A reference app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) — the Temporal-first AI agent SDK for Go. Built with a React UI and Go API, with durable workflow-backed conversations and real-time streaming via SSE.
 
-> This is a demo app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go). Not intended for production use.
+> **Durable, Fault-Tolerant AI Agent Chat in Go backed by Temporal**
+
+`agent-chat` is a reference implementation demonstrating how to build interactive, long-running agentic conversations in Go that survive container restarts, network partitions, and process crashes without losing conversation state or workflow execution context.'
+
+> This is a reference app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go). Not intended for production use.
 
 ## Why agent-sdk-go
 

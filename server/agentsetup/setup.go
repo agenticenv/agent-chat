@@ -12,6 +12,7 @@ import (
 
 	"github.com/agenticenv/agent-chat/server/config"
 	sdkagent "github.com/agenticenv/agent-sdk-go/pkg/agent"
+	sdktemporal "github.com/agenticenv/agent-sdk-go/pkg/agent/runtime/temporal"
 	"github.com/agenticenv/agent-sdk-go/pkg/conversation"
 	"github.com/agenticenv/agent-sdk-go/pkg/interfaces"
 	"github.com/agenticenv/agent-sdk-go/pkg/llm"
@@ -30,7 +31,7 @@ func CommonOptions(cfg *config.Config, conv interfaces.Conversation) ([]sdkagent
 	}
 
 	return []sdkagent.Option{
-		sdkagent.WithTemporalConfig(&sdkagent.TemporalConfig{
+		sdktemporal.WithTemporalConfig(&sdktemporal.TemporalConfig{
 			Host:      cfg.Temporal.Host,
 			Port:      cfg.Temporal.Port,
 			Namespace: cfg.Temporal.Namespace,
