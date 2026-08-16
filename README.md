@@ -8,6 +8,10 @@ A reference app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sd
 
 > This is a reference app showcasing [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go). Not intended for production use.
 
+## Quick Demo
+
+![Agent Chat Demo](./demo.gif)
+
 ## Why agent-sdk-go
 
 Most agent frameworks run in-process — if your server restarts, the agent run is lost. [agent-sdk-go](https://github.com/agenticenv/agent-sdk-go) is Temporal-first, so every agent run is a durable workflow:
@@ -135,8 +139,8 @@ Use a **long / slow prompt** (for example: ask for a detailed multi-section essa
 docker compose restart server
 ```
 
-3. Stay on the **same** chat — do not refresh or re-select. After the API is healthy, the UI reconnects via `/resume` and tokens continue.
-4. Expect: a brief pause while the server comes back, then streaming resumes on the same bubble (Temporal workflow was still running).
+1. Stay on the **same** chat — do not refresh or re-select. After the API is healthy, the UI reconnects via `/resume` and tokens continue.
+2. Expect: a brief pause while the server comes back, then streaming resumes on the same bubble (Temporal workflow was still running).
 
 
 
